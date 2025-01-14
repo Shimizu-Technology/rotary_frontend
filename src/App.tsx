@@ -1,3 +1,4 @@
+// src/App.tsx
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
@@ -45,3 +46,5 @@ function App() {
 }
 
 export default App;
+
+// Put all the routes in an api.ts so that way it isn't hardcoded to localhost for when we deploy the application. 

@@ -1,4 +1,6 @@
+// src/components/WaitlistForm.tsx
 import React, { useState } from 'react';
+import axios from 'axios';
 import { Users, User, Phone } from 'lucide-react';
 
 interface WaitlistFormData {
@@ -14,15 +16,44 @@ export default function WaitlistForm() {
     phone: '',
   });
 
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: Handle waitlist submission
-    console.log('Waitlist form submitted:', formData);
+    setError('');
+    setSuccess('');
+
+    try {
+      // The Rails WaitlistEntriesController might expect: 
+      //   contact_name, party_size, check_in_time, status, phone, etc.
+      const resp = await axios.post('http://localhost:3000/waitlist_entries', {
+        contact_name: formData.name,
+        party_size: formData.partySize,
+        contact_phone: formData.phone,
+        // Possibly set check_in_time = new Date().toISOString()
+        check_in_time: new Date().toISOString(),
+        status: 'waiting',
+      });
+
+      setSuccess('Added to waitlist successfully!');
+      console.log('Waitlist entry created:', resp.data);
+
+      // Reset form
+      setFormData({ name: '', partySize: 1, phone: '' });
+    } catch (err: any) {
+      console.error('Error adding to waitlist:', err);
+      setError('Failed to join waitlist. Please try again.');
+    }
   };
 
   return (
     <form onSubmit={handleSubmit} className="w-full max-w-md mx-auto bg-white rounded-lg shadow-lg p-6">
+      {error && <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-md mb-4">{error}</div>}
+      {success && <div className="bg-green-50 border border-green-200 text-green-600 px-4 py-3 rounded-md mb-4">{success}</div>}
+
       <div className="space-y-4">
+        {/* Name */}
         <div>
           <label htmlFor="name" className="block text-sm font-medium text-gray-700">
             Name
@@ -40,6 +71,7 @@ export default function WaitlistForm() {
           </div>
         </div>
 
+        {/* Party Size */}
         <div>
           <label htmlFor="partySize" className="block text-sm font-medium text-gray-700">
             Party Size
@@ -59,6 +91,7 @@ export default function WaitlistForm() {
           </div>
         </div>
 
+        {/* Phone */}
         <div>
           <label htmlFor="phone" className="block text-sm font-medium text-gray-700">
             Phone Number
@@ -77,6 +110,7 @@ export default function WaitlistForm() {
         </div>
       </div>
 
+      {/* Submit */}
       <div className="mt-6">
         <button
           type="submit"

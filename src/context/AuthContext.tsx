@@ -1,67 +1,82 @@
+// src/context/AuthContext.tsx
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import type { AuthUser } from '../types';
+import axios from 'axios';
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  name?: string;
+  role?: string; // "staff", "admin", "customer", etc.
+  // add other user fields if needed
+}
 
 interface AuthContextType {
   user: AuthUser | null;
   login: (email: string, password: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   isLoading: boolean;
 }
 
-// Mock users for testing
-const MOCK_USERS = [
-  {
-    id: '1',
-    email: 'staff@rotarysushi.com',
-    password: 'staff123',
-    role: 'staff',
-    name: 'Chef Akira'
-  },
-  {
-    id: '2',
-    email: 'admin@rotarysushi.com',
-    password: 'admin123',
-    role: 'admin',
-    name: 'Restaurant Manager'
-  },
-  {
-    id: '3',
-    email: 'customer@example.com',
-    password: 'customer123',
-    role: 'customer',
-    name: 'John Customer'
-  }
-] as const;
-
+// Create the context
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  // On mount, check if there's a token AND user in localStorage
   useEffect(() => {
-    // For development, immediately set loading to false
+    const token = localStorage.getItem('token');
+    const storedUser = localStorage.getItem('user'); // new line
+
+    if (token) {
+      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    }
+
+    if (storedUser) {
+      try {
+        const parsedUser: AuthUser = JSON.parse(storedUser);
+        setUser(parsedUser);
+      } catch (err) {
+        console.error('Error parsing stored user:', err);
+        // If it fails to parse, clear it
+        localStorage.removeItem('user');
+      }
+    }
+
     setIsLoading(false);
   }, []);
 
+  // *** LOGIN ***
   const login = async (email: string, password: string) => {
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 500));
+    // Remove old token + user from localStorage
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    delete axios.defaults.headers.common['Authorization'];
 
-    const mockUser = MOCK_USERS.find(u => u.email === email && u.password === password);
+    // Call your Rails API
+    const resp = await axios.post('http://localhost:3000/login', { email, password });
     
-    if (!mockUser) {
-      throw new Error('Invalid credentials');
-    }
+    // The Rails API is expected to return { jwt: token, user: userData }
+    const { jwt, user: userData } = resp.data;
 
-    // Remove password from user data before setting in state
-    const { password: _, ...userWithoutPassword } = mockUser;
-    setUser(userWithoutPassword);
+    // Store token and user in localStorage
+    localStorage.setItem('token', jwt);
+    localStorage.setItem('user', JSON.stringify(userData));
+
+    // Also set default Authorization header
+    axios.defaults.headers.common['Authorization'] = `Bearer ${jwt}`;
+
+    // Store user object in state
+    setUser(userData);
   };
 
+  // *** LOGOUT ***
   const logout = async () => {
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 300));
+    // Clear local storage
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    delete axios.defaults.headers.common['Authorization'];
     setUser(null);
   };
 
@@ -72,6 +87,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
+// Custom hook for easy usage
 export function useAuth() {
   const context = useContext(AuthContext);
   if (context === undefined) {
