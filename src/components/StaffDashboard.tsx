@@ -1,4 +1,3 @@
-// src/components/StaffDashboard.tsx
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
@@ -6,32 +5,28 @@ import type { Reservation, WaitlistEntry } from '../types';
 import SeatLayoutEditor from './SeatLayoutEditor';
 import { Clock, Users, Phone, Mail, Search, Filter } from 'lucide-react';
 
+/**
+ * A staff dashboard with three tab buttons: Layout, Reservations, Waitlist.
+ * These are visually separated from the NavBar, so they won't look like part of the nav.
+ */
 export default function StaffDashboard() {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'layout' | 'reservations' | 'waitlist'>('layout');
 
-  // Reservation + Waitlist states
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [waitlist, setWaitlist] = useState<WaitlistEntry[]>([]);
 
-  // Filter states
   const [searchTerm, setSearchTerm] = useState('');
-  // Default to today's date for filtering
   const [dateFilter, setDateFilter] = useState(new Date().toISOString().split('T')[0]);
 
   useEffect(() => {
-    // If user is not logged in or role check needed, you can do that here
-    // But we'll assume the user is logged in due to the ProtectedRoute
     fetchReservations();
     fetchWaitlist();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchReservations = async () => {
     try {
       const resp = await axios.get('http://localhost:3000/reservations');
-      // The API likely returns an array of reservation objects
-      // We’ll assume it matches your Reservation interface
       setReservations(resp.data);
     } catch (err) {
       console.error('Error fetching reservations:', err);
@@ -41,93 +36,93 @@ export default function StaffDashboard() {
   const fetchWaitlist = async () => {
     try {
       const resp = await axios.get('http://localhost:3000/waitlist_entries');
-      // The API likely returns an array of waitlist objects
       setWaitlist(resp.data);
     } catch (err) {
       console.error('Error fetching waitlist:', err);
     }
   };
 
-  // Filter reservations
+  // Filter logic for reservations
   const filteredReservations = reservations.filter((reservation) => {
-    // If your API returns date/time in separate fields or a single field, adapt accordingly.
     const matchesSearch =
       reservation.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       reservation.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       reservation.phone?.includes(searchTerm);
 
-    // If your API returns a string date like 2025-01-14, match it to `dateFilter`
+    // If the API returns e.g. start_time = "2025-01-14T18:00:00Z":
     const reservationDate = reservation.date || reservation.start_time?.substring(0, 10);
     const matchesDate = reservationDate === dateFilter;
 
     return matchesSearch && matchesDate;
   });
 
-  // Filter waitlist
+  // Filter logic for waitlist
   const filteredWaitlist = waitlist.filter((entry) =>
     entry.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     entry.phone.includes(searchTerm)
   );
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Navigation */}
-      <nav className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4">
-          <div className="flex justify-between h-16">
-            <div className="flex space-x-8">
-              <button
-                onClick={() => setActiveTab('layout')}
-                className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${
-                  activeTab === 'layout'
-                    ? 'border-orange-500 text-gray-900'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                Seating Layout
-              </button>
-              <button
-                onClick={() => setActiveTab('reservations')}
-                className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${
-                  activeTab === 'reservations'
-                    ? 'border-orange-500 text-gray-900'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                Reservations
-              </button>
-              <button
-                onClick={() => setActiveTab('waitlist')}
-                className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${
-                  activeTab === 'waitlist'
-                    ? 'border-orange-500 text-gray-900'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                Waitlist
-              </button>
-            </div>
+    <div className="bg-gray-50 min-h-screen">
+      {/* 
+        The NavBar is presumably rendered one level above this component,
+        e.g. in App.tsx, so we don't do <NavBar /> here.
+        Instead, we just do the staff dashboard content below.
+      */}
 
-            <div className="flex items-center">
-              <span className="text-sm text-gray-600">
-                Welcome, {user?.name || user?.email}
-              </span>
-            </div>
-          </div>
+      {/* Tab Section (below the nav) */}
+      <div className="max-w-7xl mx-auto px-4 mt-6">
+        {/* 
+          A container for the 3 tab-like buttons, 
+          using a card-like background or simply a row of buttons 
+        */}
+        <div className="bg-white rounded-md shadow p-3 flex items-center space-x-2">
+          <button
+            onClick={() => setActiveTab('layout')}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+              activeTab === 'layout'
+                ? 'bg-orange-50 text-orange-700 border border-orange-300'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            Layout
+          </button>
+          <button
+            onClick={() => setActiveTab('reservations')}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+              activeTab === 'reservations'
+                ? 'bg-orange-50 text-orange-700 border border-orange-300'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            Reservations
+          </button>
+          <button
+            onClick={() => setActiveTab('waitlist')}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+              activeTab === 'waitlist'
+                ? 'bg-orange-50 text-orange-700 border border-orange-300'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            Waitlist
+          </button>
         </div>
-      </nav>
+      </div>
 
-      {/* Main content */}
-      <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-        {/* Layout Editor */}
-        {activeTab === 'layout' && <SeatLayoutEditor />}
+      {/* Main content area */}
+      <div className="max-w-7xl mx-auto px-4 py-6">
+        {activeTab === 'layout' && (
+          <div className="bg-white shadow rounded-md p-4">
+            <SeatLayoutEditor />
+          </div>
+        )}
 
-        {/* Reservations View */}
         {activeTab === 'reservations' && (
-          <div className="bg-white shadow rounded-lg overflow-hidden">
-            <div className="p-4 border-b border-gray-200 bg-gray-50">
+          <div className="bg-white shadow rounded-md overflow-hidden p-4 mt-4">
+            <div className="p-4 border-b border-gray-200 bg-gray-50 rounded-md">
               <div className="flex flex-col sm:flex-row gap-4">
-                <div className="flex-1 relative">
+                <div className="relative flex-1">
                   <Search className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
                   <input
                     type="text"
@@ -137,7 +132,7 @@ export default function StaffDashboard() {
                     className="pl-10 pr-4 py-2 w-full border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
                   />
                 </div>
-                <div className="sm:w-48 relative">
+                <div className="relative sm:w-48">
                   <Filter className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
                   <input
                     type="date"
@@ -148,7 +143,8 @@ export default function StaffDashboard() {
                 </div>
               </div>
             </div>
-            <div className="overflow-x-auto">
+
+            <div className="overflow-x-auto mt-4">
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
@@ -174,8 +170,6 @@ export default function StaffDashboard() {
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filteredReservations.map((res) => {
-                    // Example: if the Rails API returns "start_time" as e.g. "2025-01-14T18:00:00Z"
-                    // you might parse it accordingly:
                     let dateTimeDisplay = res.date
                       ? `${res.date} ${res.time}`
                       : res.start_time
@@ -234,10 +228,9 @@ export default function StaffDashboard() {
           </div>
         )}
 
-        {/* Waitlist View */}
         {activeTab === 'waitlist' && (
-          <div className="bg-white shadow rounded-lg overflow-hidden">
-            <div className="p-4 border-b border-gray-200 bg-gray-50">
+          <div className="bg-white shadow rounded-md overflow-hidden p-4 mt-4">
+            <div className="p-4 border-b border-gray-200 bg-gray-50 rounded-md">
               <div className="relative">
                 <Search className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
                 <input
@@ -249,7 +242,8 @@ export default function StaffDashboard() {
                 />
               </div>
             </div>
-            <div className="overflow-x-auto">
+
+            <div className="overflow-x-auto mt-4">
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
@@ -324,7 +318,7 @@ export default function StaffDashboard() {
             </div>
           </div>
         )}
-      </main>
+      </div>
     </div>
   );
 }

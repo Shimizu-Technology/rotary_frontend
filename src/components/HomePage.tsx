@@ -1,64 +1,21 @@
+// src/components/HomePage.tsx
 import React from 'react';
 import ReservationForm from './ReservationForm';
 import StaffBanner from './StaffBanner';
-import { Link } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
 
 export default function HomePage() {
-  const { user, logout } = useAuth();
-
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Navigation */}
-      <nav className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4">
-          <div className="flex justify-between h-16 items-center">
-            <div className="flex-shrink-0">
-              <img
-                src="https://images.unsplash.com/photo-1579871494447-9811cf80d66c?auto=format&fit=crop&q=80&w=120"
-                alt="Rotary Sushi Logo"
-                className="h-8 w-8 rounded-full"
-              />
-            </div>
-            <div className="flex items-center space-x-4">
-              {user ? (
-                <>
-                  <span className="text-gray-600">
-                    Welcome, {user.name || user.email}
-                  </span>
-                  {user.role === 'staff' || user.role === 'admin' ? (
-                    <Link
-                      to="/dashboard"
-                      className="text-orange-600 hover:text-orange-700 font-medium"
-                    >
-                      Dashboard
-                    </Link>
-                  ) : null}
-                  <button
-                    onClick={() => logout()}
-                    className="text-orange-600 hover:text-orange-700 font-medium"
-                  >
-                    Sign Out
-                  </button>
-                </>
-              ) : (
-                <Link
-                  to="/login"
-                  className="text-orange-600 hover:text-orange-700 font-medium"
-                >
-                  Sign In
-                </Link>
-              )}
-            </div>
-          </div>
-        </div>
-      </nav>
+      {/* 
+         No local <nav> here. NavBar is in App.tsx 
+      */}
 
       {/* Hero Section */}
-      <div 
+      <div
         className="relative bg-cover bg-center h-[500px]"
         style={{
-          backgroundImage: 'url("https://images.unsplash.com/photo-1579871494447-9811cf80d66c?auto=format&fit=crop&q=80&w=1920")',
+          backgroundImage:
+            'url("https://images.unsplash.com/photo-1579871494447-9811cf80d66c?auto=format&fit=crop&q=80&w=1920")',
         }}
       >
         <div className="absolute inset-0 bg-black bg-opacity-50" />

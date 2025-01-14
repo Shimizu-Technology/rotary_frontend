@@ -1,8 +1,7 @@
-// src/components/LoginPage.tsx
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Utensils, ChevronRight } from 'lucide-react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -15,7 +14,7 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    
+
     try {
       await login(email, password);
       // If there's a "from" param, go there, else go home
@@ -28,9 +27,9 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-orange-50 to-white flex flex-col justify-center py-12 sm:px-6 lg:px-8">
-      {/* Japanese-inspired wave pattern */}
+      {/* Subtle background pattern if desired */}
       <div className="absolute inset-0 z-0 opacity-10 pointer-events-none">
-        {/* ... wave pattern background ... */}
+        {/* ... wave or subtle pattern ... */}
       </div>
 
       <div className="sm:mx-auto sm:w-full sm:max-w-md relative z-10">
@@ -55,7 +54,8 @@ export default function LoginPage() {
                 {error}
               </div>
             )}
-            
+
+            {/* Email */}
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700">
                 Email address
@@ -68,11 +68,13 @@ export default function LoginPage() {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-orange-500 focus:border-orange-500"
+                  className="appearance-none block w-full px-3 py-2 border border-gray-300 
+                             rounded-md shadow-sm focus:ring-orange-500 focus:border-orange-500"
                 />
               </div>
             </div>
 
+            {/* Password */}
             <div>
               <label htmlFor="password" className="block text-sm font-medium text-gray-700">
                 Password
@@ -85,15 +87,19 @@ export default function LoginPage() {
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-orange-500 focus:border-orange-500"
+                  className="appearance-none block w-full px-3 py-2 border border-gray-300 
+                             rounded-md shadow-sm focus:ring-orange-500 focus:border-orange-500"
                 />
               </div>
             </div>
 
+            {/* Submit button */}
             <div>
               <button
                 type="submit"
-                className="group relative w-full flex justify-center py-2 px-4 rounded-md shadow-sm text-sm font-medium text-white bg-orange-600 hover:bg-orange-700 focus:outline-none"
+                className="group relative w-full flex justify-center py-2 px-4 rounded-md 
+                           shadow-sm text-sm font-medium text-white bg-orange-600 
+                           hover:bg-orange-700 focus:outline-none"
               >
                 <span className="absolute right-3 inset-y-0 flex items-center">
                   <ChevronRight className="h-5 w-5 text-orange-300 group-hover:text-orange-200 transition-colors" />
@@ -102,6 +108,14 @@ export default function LoginPage() {
               </button>
             </div>
           </form>
+
+          {/* "Don't have an account?" link to signup */}
+          <div className="mt-4 text-center text-sm text-gray-600">
+            Don&apos;t have an account?{' '}
+            <Link to="/signup" className="text-orange-600 hover:text-orange-700 font-medium">
+              Sign Up
+            </Link>
+          </div>
         </div>
       </div>
     </div>

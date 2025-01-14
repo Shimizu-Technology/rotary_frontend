@@ -2,36 +2,45 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
-import LoginPage from './components/LoginPage';
-import StaffDashboard from './components/StaffDashboard';
 
-// Public home page with reservation form
+// Components
+import NavBar from './components/NavBar';
 import HomePage from './components/HomePage';
+import LoginPage from './components/LoginPage';
+import SignupPage from './components/SignupPage';
+import StaffDashboard from './components/StaffDashboard';
+import ProfilePage from './components/ProfilePage';
 
-// Protected route wrapper
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
 
-  if (isLoading) {
-    return <div>Loading...</div>;
-  }
-
-  if (!user) {
-    return <Navigate to="/login" />;
-  }
-
+  if (isLoading) return <div>Loading...</div>;
+  if (!user) return <Navigate to="/login" />;
   return <>{children}</>;
 }
 
-function App() {
+export default function App() {
   return (
     <Router>
+      <NavBar />
+
       <Routes>
-        {/* Public routes */}
+        {/* Public */}
         <Route path="/" element={<HomePage />} />
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/signup" element={<SignupPage />} />
 
-        {/* Protected routes */}
+        {/* Profile (user only) */}
+        <Route
+          path="/profile"
+          element={
+            <ProtectedRoute>
+              <ProfilePage />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Dashboard (admin/staff only) */}
         <Route
           path="/dashboard/*"
           element={
@@ -44,7 +53,3 @@ function App() {
     </Router>
   );
 }
-
-export default App;
-
-// Put all the routes in an api.ts so that way it isn't hardcoded to localhost for when we deploy the application. 
