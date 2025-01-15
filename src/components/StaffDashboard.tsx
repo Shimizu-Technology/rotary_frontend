@@ -1,3 +1,4 @@
+// src/components/StaffDashboard.tsx
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
@@ -22,6 +23,7 @@ export default function StaffDashboard() {
   useEffect(() => {
     fetchReservations();
     fetchWaitlist();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchReservations = async () => {
@@ -44,12 +46,18 @@ export default function StaffDashboard() {
 
   // Filter logic for reservations
   const filteredReservations = reservations.filter((reservation) => {
+    // Safely handle potential undefined fields
+    const guestName = reservation.name?.toLowerCase() ?? '';
+    const guestEmail = reservation.email?.toLowerCase() ?? '';
+    const guestPhone = reservation.phone ?? '';
+
     const matchesSearch =
-      reservation.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      reservation.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      reservation.phone?.includes(searchTerm);
+      guestName.includes(searchTerm.toLowerCase()) ||
+      guestEmail.includes(searchTerm.toLowerCase()) ||
+      guestPhone.includes(searchTerm);
 
     // If the API returns e.g. start_time = "2025-01-14T18:00:00Z":
+    // Or if your Rails side merges date/time differently, adapt here.
     const reservationDate = reservation.date || reservation.start_time?.substring(0, 10);
     const matchesDate = reservationDate === dateFilter;
 
@@ -57,10 +65,16 @@ export default function StaffDashboard() {
   });
 
   // Filter logic for waitlist
-  const filteredWaitlist = waitlist.filter((entry) =>
-    entry.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    entry.phone.includes(searchTerm)
-  );
+  const filteredWaitlist = waitlist.filter((entry) => {
+    // Safely handle potential undefined fields
+    const entryName = entry.name?.toLowerCase() ?? '';
+    const entryPhone = entry.phone ?? '';
+
+    return (
+      entryName.includes(searchTerm.toLowerCase()) ||
+      entryPhone.includes(searchTerm)
+    );
+  });
 
   return (
     <div className="bg-gray-50 min-h-screen">
@@ -72,10 +86,6 @@ export default function StaffDashboard() {
 
       {/* Tab Section (below the nav) */}
       <div className="max-w-7xl mx-auto px-4 mt-6">
-        {/* 
-          A container for the 3 tab-like buttons, 
-          using a card-like background or simply a row of buttons 
-        */}
         <div className="bg-white rounded-md shadow p-3 flex items-center space-x-2">
           <button
             onClick={() => setActiveTab('layout')}
@@ -170,11 +180,13 @@ export default function StaffDashboard() {
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filteredReservations.map((res) => {
-                    let dateTimeDisplay = res.date
-                      ? `${res.date} ${res.time}`
-                      : res.start_time
-                      ? new Date(res.start_time).toLocaleString()
-                      : 'N/A';
+                    // Format date/time
+                    let dateTimeDisplay = 'N/A';
+                    if (res.date) {
+                      dateTimeDisplay = `${res.date} ${res.time}`;
+                    } else if (res.start_time) {
+                      dateTimeDisplay = new Date(res.start_time).toLocaleString();
+                    }
 
                     return (
                       <tr key={res.id} className="hover:bg-gray-50">
@@ -269,6 +281,7 @@ export default function StaffDashboard() {
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filteredWaitlist.map((entry) => {
+                    // Safe fallback if joinedAt or check_in_time is missing
                     const joinedTime = entry.joinedAt || entry.check_in_time || '';
                     const joinedDisplay = joinedTime
                       ? new Date(joinedTime).toLocaleTimeString()

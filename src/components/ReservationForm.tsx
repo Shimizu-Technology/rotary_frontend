@@ -44,6 +44,7 @@ export default function ReservationForm() {
         contact_name: formData.name,
         contact_phone: formData.phone,
         contact_email: formData.email,
+        restaurant_id: 1, // hardcoded to 1 for now because we know that Rotary is 1 in the db but this should be dynamic - we need this for the future when we update the app to be a full SaaS application and we have multiple restaurants
         // any other fields you might want, e.g. status: "booked"
       });
       setSuccess('Reservation created successfully!');
