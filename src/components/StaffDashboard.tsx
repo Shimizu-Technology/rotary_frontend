@@ -7,6 +7,7 @@ import type { Reservation, WaitlistEntry } from '../types';
 import SeatLayoutEditor from './SeatLayoutEditor';
 import ReservationModal from './ReservationModal';
 import ReservationFormModal from './ReservationFormModal';
+import FloorManager from './FloorManager';
 
 import { 
   Clock, 
@@ -21,18 +22,19 @@ import {
 
 export default function StaffDashboard() {
   const { user } = useAuth();
-  // The tabs are now: "reservations", "waitlist", "layout" in that order
-  const [activeTab, setActiveTab] = useState<'reservations' | 'waitlist' | 'layout'>('reservations');
 
-  // Data
+  // TABS: reservations / waitlist / seating / layout
+  const [activeTab, setActiveTab] = useState<'reservations' | 'waitlist' | 'seating' | 'layout'>('reservations');
+
+  // Store data
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [waitlist, setWaitlist] = useState<WaitlistEntry[]>([]);
 
-  // Search + filter
+  // Search + date filter
   const [searchTerm, setSearchTerm] = useState('');
   const [dateFilter, setDateFilter] = useState(new Date().toISOString().split('T')[0]);
 
-  // For modals:
+  // For modals
   const [selectedReservation, setSelectedReservation] = useState<Reservation | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
 
@@ -44,88 +46,74 @@ export default function StaffDashboard() {
   // ----------------------------------
   // Data fetching
   // ----------------------------------
-  const fetchReservations = async () => {
+  async function fetchReservations() {
     try {
       const resp = await axios.get<Reservation[]>('http://localhost:3000/reservations');
       // Sort earliest → latest by start_time
       const sorted = resp.data.slice().sort((a, b) => {
-        const dateA = new Date(a.start_time).getTime();
-        const dateB = new Date(b.start_time).getTime();
+        const dateA = new Date(a.start_time || '').getTime();
+        const dateB = new Date(b.start_time || '').getTime();
         return dateA - dateB;
       });
       setReservations(sorted);
     } catch (err) {
       console.error('Error fetching reservations:', err);
     }
-  };
+  }
 
-  const fetchWaitlist = async () => {
+  async function fetchWaitlist() {
     try {
       const resp = await axios.get<WaitlistEntry[]>('http://localhost:3000/waitlist_entries');
       setWaitlist(resp.data);
     } catch (err) {
       console.error('Error fetching waitlist:', err);
     }
-  };
+  }
 
   // ----------------------------------
-  // Reservation filters
+  // Filter logic
   // ----------------------------------
-  const filteredReservations = reservations.filter((reservation) => {
-    const contactName = reservation.contact_name?.toLowerCase() ?? '';
-    const phone = reservation.contact_phone ?? '';
-    const email = reservation.contact_email?.toLowerCase() ?? '';
-
+  const filteredReservations = reservations.filter((r) => {
+    const name = r.contact_name?.toLowerCase() ?? '';
+    const phone = r.contact_phone ?? '';
+    const email = r.contact_email?.toLowerCase() ?? '';
     const matchesSearch =
-      contactName.includes(searchTerm.toLowerCase()) ||
+      name.includes(searchTerm.toLowerCase()) ||
       phone.includes(searchTerm) ||
       email.includes(searchTerm);
 
-    // Compare only YYYY-MM-DD
-    const dtStr = reservation.start_time.substring(0, 10); 
+    const dtStr = (r.start_time || '').substring(0, 10);
     const matchesDate = dtStr === dateFilter;
-
     return matchesSearch && matchesDate;
   });
 
-  // ----------------------------------
-  // Waitlist filters
-  // ----------------------------------
-  const filteredWaitlist = waitlist.filter((entry) => {
-    const name = entry.name?.toLowerCase() ?? '';
-    const phone = entry.phone ?? '';
-    return (
-      name.includes(searchTerm.toLowerCase()) ||
-      phone.includes(searchTerm)
-    );
+  const filteredWaitlist = waitlist.filter((w) => {
+    const wName = w.name?.toLowerCase() ?? '';
+    const wPhone = w.phone ?? '';
+    return wName.includes(searchTerm.toLowerCase()) || wPhone.includes(searchTerm);
   });
 
   // ----------------------------------
-  // Row click => open modal
+  // Table row click => open modal
   // ----------------------------------
-  const handleRowClick = (reservation: Reservation) => {
-    setSelectedReservation(reservation);
-  };
+  function handleRowClick(res: Reservation) {
+    setSelectedReservation(res);
+  }
 
   // ----------------------------------
-  // Reservation modal callbacks
+  // Reservation Modal handlers
   // ----------------------------------
-  const handleCloseModal = () => {
-    setSelectedReservation(null);
-  };
-
-  const handleDeleteReservation = async (id: number) => {
+  async function handleDeleteReservation(id: number) {
     try {
       await axios.delete(`http://localhost:3000/reservations/${id}`);
-      // Remove from local state or refetch
-      setReservations((prev) => prev.filter((r) => r.id !== id));
+      setReservations(prev => prev.filter(r => r.id !== id));
       setSelectedReservation(null);
     } catch (err) {
       console.error('Failed to delete reservation:', err);
     }
-  };
+  }
 
-  const handleEditReservation = async (updated: Reservation) => {
+  async function handleEditReservation(updated: Reservation) {
     try {
       await axios.patch(`http://localhost:3000/reservations/${updated.id}`, {
         party_size: updated.party_size,
@@ -134,52 +122,51 @@ export default function StaffDashboard() {
         contact_email: updated.contact_email,
         status: updated.status,
       });
-      // Re-fetch or locally update
       await fetchReservations();
       setSelectedReservation(null);
     } catch (err) {
       console.error('Failed to update reservation:', err);
     }
-  };
+  }
+
+  function handleCloseModal() {
+    setSelectedReservation(null);
+  }
 
   // ----------------------------------
-  // Date nav: arrows
+  // Date arrow nav
   // ----------------------------------
-  const handlePrevDay = () => {
+  function handlePrevDay() {
     const current = new Date(dateFilter);
     current.setDate(current.getDate() - 1);
     setDateFilter(current.toISOString().split('T')[0]);
-  };
+  }
 
-  const handleNextDay = () => {
+  function handleNextDay() {
     const current = new Date(dateFilter);
     current.setDate(current.getDate() + 1);
     setDateFilter(current.toISOString().split('T')[0]);
-  };
+  }
 
   // ----------------------------------
-  // Creating new reservation
+  // "New Reservation" creation
   // ----------------------------------
-  const handleCreateNewReservation = () => {
+  function handleCreateNewReservation() {
     setShowCreateModal(true);
-  };
+  }
 
-  const handleCloseCreateModal = () => {
+  function handleCloseCreateModal() {
     setShowCreateModal(false);
-  };
+  }
 
-  const handleCreateReservationSuccess = async () => {
+  async function handleCreateReservationSuccess() {
     setShowCreateModal(false);
     await fetchReservations();
-  };
+  }
 
-  // ----------------------------------
-  // Render
-  // ----------------------------------
   return (
     <div className="bg-gray-50 min-h-screen">
-
-      {/* Tabs: Reservations / Waitlist / Layout */}
+      {/* Tabs */}
       <div className="max-w-7xl mx-auto px-4 mt-6">
         <div className="bg-white rounded-md shadow p-3 flex items-center space-x-2">
           <button
@@ -203,6 +190,16 @@ export default function StaffDashboard() {
             Waitlist
           </button>
           <button
+            onClick={() => setActiveTab('seating')}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+              activeTab === 'seating'
+                ? 'bg-orange-50 text-orange-700 border border-orange-300'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            Seating
+          </button>
+          <button
             onClick={() => setActiveTab('layout')}
             className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
               activeTab === 'layout'
@@ -216,23 +213,14 @@ export default function StaffDashboard() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 py-6">
-        {/* --------------------------------------
-             Tab: Reservations
-        -------------------------------------- */}
+        {/* -------------------- TAB: RESERVATIONS -------------------- */}
         {activeTab === 'reservations' && (
           <div className="bg-white shadow rounded-md p-4">
-            {/* Search + Filter bar */}
             <div className="border-b border-gray-200 bg-gray-50 rounded-md p-4">
-              {/* 
-                 We'll arrange everything in a row: 
-                 search input, arrow buttons + date, then
-                 the "New Reservation" button with some margin 
-              */}
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                
-                {/* Left section: search + date controls */}
+                {/* Left: Search + Date */}
                 <div className="flex flex-col sm:flex-row items-center gap-3 flex-1">
-                  {/* Search input */}
+                  {/* Search */}
                   <div className="relative w-full sm:w-auto flex-1">
                     <Search className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
                     <input
@@ -245,7 +233,7 @@ export default function StaffDashboard() {
                     />
                   </div>
 
-                  {/* Arrow buttons + date input */}
+                  {/* Date + Arrows */}
                   <div className="flex items-center space-x-2">
                     <button
                       onClick={handlePrevDay}
@@ -274,7 +262,7 @@ export default function StaffDashboard() {
                   </div>
                 </div>
 
-                {/* Right section: New Reservation button */}
+                {/* Right: new reservation button */}
                 <div className="flex justify-end">
                   <button
                     onClick={handleCreateNewReservation}
@@ -291,26 +279,16 @@ export default function StaffDashboard() {
               <table className="min-w-full divide-y divide-gray-200 text-sm">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-6 py-3 text-left font-medium text-gray-500 uppercase tracking-wider">
-                      Date/Time
-                    </th>
-                    <th className="px-6 py-3 text-left font-medium text-gray-500 uppercase tracking-wider">
-                      Guest
-                    </th>
-                    <th className="px-6 py-3 text-left font-medium text-gray-500 uppercase tracking-wider">
-                      Party Size
-                    </th>
-                    <th className="px-6 py-3 text-left font-medium text-gray-500 uppercase tracking-wider">
-                      Contact
-                    </th>
-                    <th className="px-6 py-3 text-left font-medium text-gray-500 uppercase tracking-wider">
-                      Status
-                    </th>
+                    <th className="px-6 py-3 text-left font-medium text-gray-500 uppercase tracking-wider">Date/Time</th>
+                    <th className="px-6 py-3 text-left font-medium text-gray-500 uppercase tracking-wider">Guest</th>
+                    <th className="px-6 py-3 text-left font-medium text-gray-500 uppercase tracking-wider">Party Size</th>
+                    <th className="px-6 py-3 text-left font-medium text-gray-500 uppercase tracking-wider">Contact</th>
+                    <th className="px-6 py-3 text-left font-medium text-gray-500 uppercase tracking-wider">Status</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filteredReservations.map((res) => {
-                    const dt = new Date(res.start_time);
+                    const dt = new Date(res.start_time || '');
                     const dateString = dt.toLocaleDateString(undefined, {
                       year: 'numeric',
                       month: 'numeric',
@@ -357,28 +335,23 @@ export default function StaffDashboard() {
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          {/* Color-coded status */}
                           {res.status === 'booked' && (
-                            <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
-                                             bg-orange-100 text-orange-800">
+                            <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-orange-100 text-orange-800">
                               booked
                             </span>
                           )}
                           {res.status === 'canceled' && (
-                            <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
-                                             bg-red-100 text-red-800">
+                            <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">
                               canceled
                             </span>
                           )}
                           {res.status === 'seated' && (
-                            <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
-                                             bg-green-100 text-green-800">
+                            <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
                               seated
                             </span>
                           )}
                           {!['booked','canceled','seated'].includes(res.status ?? '') && (
-                            <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
-                                             bg-gray-200 text-gray-800">
+                            <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-200 text-gray-800">
                               {res.status ?? 'N/A'}
                             </span>
                           )}
@@ -399,9 +372,7 @@ export default function StaffDashboard() {
           </div>
         )}
 
-        {/* --------------------------------------
-             Tab: Waitlist
-        -------------------------------------- */}
+        {/* -------------------- TAB: WAITLIST -------------------- */}
         {activeTab === 'waitlist' && (
           <div className="bg-white shadow rounded-md overflow-hidden p-4 mt-4">
             <div className="p-4 border-b border-gray-200 bg-gray-50 rounded-md">
@@ -417,7 +388,6 @@ export default function StaffDashboard() {
                 />
               </div>
             </div>
-
             <div className="overflow-x-auto mt-4">
               <table className="min-w-full divide-y divide-gray-200 text-sm">
                 <thead className="bg-gray-50">
@@ -440,39 +410,37 @@ export default function StaffDashboard() {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {filteredWaitlist.map((entry) => {
-                    const joined = new Date(entry.check_in_time || '');
+                  {filteredWaitlist.map((w) => {
+                    const joined = new Date(w.check_in_time || '');
                     const joinedDisplay = isNaN(joined.getTime())
                       ? 'N/A'
                       : joined.toLocaleString();
 
                     return (
-                      <tr key={entry.id} className="hover:bg-gray-50">
+                      <tr key={w.id} className="hover:bg-gray-50">
                         <td className="px-6 py-4 text-gray-900 whitespace-nowrap">
                           <div className="flex items-center">
                             <Clock className="h-4 w-4 text-gray-400 mr-2" />
                             {joinedDisplay}
                           </div>
                         </td>
-                        <td className="px-6 py-4 text-gray-900 whitespace-nowrap">
-                          {entry.name ?? 'N/A'}
-                        </td>
+                        <td className="px-6 py-4 text-gray-900 whitespace-nowrap">{w.name ?? 'N/A'}</td>
                         <td className="px-6 py-4 text-gray-900 whitespace-nowrap">
                           <div className="flex items-center">
                             <Users className="h-4 w-4 text-gray-400 mr-2" />
-                            {entry.partySize ?? 'N/A'}
+                            {w.partySize ?? 'N/A'}
                           </div>
                         </td>
                         <td className="px-6 py-4 text-gray-500 whitespace-nowrap">
                           <div className="flex items-center">
                             <Phone className="h-4 w-4 text-gray-400 mr-2" />
-                            {entry.phone ?? 'N/A'}
+                            {w.phone ?? 'N/A'}
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full
                                          bg-yellow-100 text-yellow-800">
-                            {entry.status ?? 'waiting'}
+                            {w.status ?? 'waiting'}
                           </span>
                         </td>
                       </tr>
@@ -494,9 +462,17 @@ export default function StaffDashboard() {
           </div>
         )}
 
-        {/* --------------------------------------
-             Tab: Layout
-        -------------------------------------- */}
+        {/* -------------------- TAB: SEATING -------------------- */}
+        {activeTab === 'seating' && (
+          <div className="bg-white shadow rounded-md p-4 mt-4">
+            {/* 
+              We pass reservations + waitlist as props to FloorManager:
+            */}
+            <FloorManager reservations={reservations} waitlist={waitlist} />
+          </div>
+        )}
+
+        {/* -------------------- TAB: LAYOUT -------------------- */}
         {activeTab === 'layout' && (
           <div className="bg-white shadow rounded-md p-4">
             <SeatLayoutEditor />
@@ -504,7 +480,7 @@ export default function StaffDashboard() {
         )}
       </div>
 
-      {/* Reservation Details Modal */}
+      {/* Reservation Modal */}
       {selectedReservation && (
         <ReservationModal
           reservation={selectedReservation}
@@ -514,7 +490,7 @@ export default function StaffDashboard() {
         />
       )}
 
-      {/* "New Reservation" Modal */}
+      {/* New Reservation Modal */}
       {showCreateModal && (
         <ReservationFormModal
           onClose={handleCloseCreateModal}
