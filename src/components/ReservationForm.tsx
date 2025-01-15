@@ -3,18 +3,12 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import { Clock, Users, Phone, Mail } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
 
-/** 
- * Fields for the form input. 
- * If user is logged out, firstName is required, lastName optional.
- * If user is logged in, everything is optional, we fallback to user’s data if blank.
- */
 interface ReservationFormData {
   date: string;
   time: string;
   partySize: number;
-
-  // For the contact info
   firstName: string;
   lastName: string;
   phone: string;
@@ -23,6 +17,8 @@ interface ReservationFormData {
 
 export default function ReservationForm() {
   const { user } = useAuth();
+  const navigate = useNavigate();
+
   const [formData, setFormData] = useState<ReservationFormData>({
     date: '',
     time: '',
@@ -36,29 +32,22 @@ export default function ReservationForm() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  // On submit, if user is logged in, fallback to user’s stored info for blank fields
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setSuccess('');
 
-    // Convert date+time into "start_time"
     const start_time = `${formData.date}T${formData.time}`;
-
-    // Build contact fields, applying fallback if user is logged in
+    // Fallback logic for logged in user’s data
     const contactFirstName = formData.firstName.trim()
-      || (user ? user.name?.split(' ')[0] ?? '' : ''); 
-      // ^ if your user object has separate firstName/lastName, adjust accordingly.
-    const contactLastName = formData.lastName.trim()
-      || (user ? user.name?.split(' ')[1] ?? '' : ''); 
-    const contactPhone = formData.phone.trim()
-      || (user?.phone ? user.phone : '');
-    const contactEmail = formData.email.trim()
-      || (user?.email ? user.email : '');
+      || (user ? user.name?.split(' ')[0] ?? '' : '');
+    const contactLastName  = formData.lastName.trim()
+      || (user ? user.name?.split(' ')[1] ?? '' : '');
+    const contactPhone     = formData.phone.trim() || user?.phone || '';
+    const contactEmail     = formData.email.trim() || user?.email || '';
 
-    // If user is not logged in, require first name (and optionally phone/email).
-    // Adjust these checks as your restaurant’s policy dictates:
     if (!user) {
+      // If not logged in, enforce required fields
       if (!contactFirstName) {
         setError('First name is required if not signed in.');
         return;
@@ -67,40 +56,29 @@ export default function ReservationForm() {
         setError('Email is required if not signed in.');
         return;
       }
-      // etc.
+      // etc...
     }
 
     try {
-      // POST to your Rails reservations endpoint
+      // Post to Rails
       const resp = await axios.post('http://localhost:3000/reservations', {
         start_time,
         party_size: formData.partySize,
-        // We store first/last name in contact_name or 
-        //   in separate fields contact_first_name/contact_last_name if your Rails model has them.
         contact_name: [contactFirstName, contactLastName].filter(Boolean).join(' '),
         contact_phone: contactPhone,
         contact_email: contactEmail,
-
-        // In a multi-restaurant setup, you’d pass the restaurant_id dynamically 
-        // or let the server deduce from user’s restaurant. 
-        restaurant_id: 1,  
-        // status: 'booked', etc., as needed
+        restaurant_id: 1,
       });
 
+      // If success, we can either setSuccess or navigate to the confirmation page
       setSuccess('Reservation created successfully!');
       console.log('Reservation created:', resp.data);
 
-      // Optionally reset the form
-      setFormData({
-        date: '',
-        time: '',
-        partySize: 1,
-        firstName: '',
-        lastName: '',
-        phone: '',
-        email: '',
+      // Navigate to /reservation-confirmation with the newly created reservation in state
+      navigate('/reservation-confirmation', {
+        state: { reservation: resp.data }
       });
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error creating reservation:', err);
       setError('Failed to create reservation. Please try again.');
     }
@@ -184,9 +162,6 @@ export default function ReservationForm() {
           </div>
         </div>
 
-        {/* For a GUEST (not logged in), firstName is required, lastName optional */}
-        {/* For a LOGGED IN user, both are optional (fallback to user’s name if blank). */}
-
         {/* First Name */}
         <div className="space-y-2">
           <label htmlFor="firstName" className="block text-sm font-medium text-gray-700">
@@ -206,7 +181,7 @@ export default function ReservationForm() {
         {/* Last Name */}
         <div className="space-y-2">
           <label htmlFor="lastName" className="block text-sm font-medium text-gray-700">
-            {isLoggedIn ? 'Last Name (Optional)' : 'Last Name (Optional)'}
+            Last Name (Optional)
           </label>
           <input
             type="text"
@@ -258,7 +233,6 @@ export default function ReservationForm() {
         </div>
       </div>
 
-      {/* Submit */}
       <div className="mt-6">
         <button
           type="submit"

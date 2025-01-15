@@ -3,13 +3,13 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
 
-// Components
 import NavBar from './components/NavBar';
 import HomePage from './components/HomePage';
 import LoginPage from './components/LoginPage';
 import SignupPage from './components/SignupPage';
 import StaffDashboard from './components/StaffDashboard';
 import ProfilePage from './components/ProfilePage';
+import ReservationConfirmationPage from './components/ReservationConfirmationPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -25,12 +25,15 @@ export default function App() {
       <NavBar />
 
       <Routes>
-        {/* Public */}
+        {/* Public routes */}
         <Route path="/" element={<HomePage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
 
-        {/* Profile (user only) */}
+        {/* Confirmation route (public) */}
+        <Route path="/reservation-confirmation" element={<ReservationConfirmationPage />} />
+
+        {/* Protected routes */}
         <Route
           path="/profile"
           element={
@@ -39,8 +42,6 @@ export default function App() {
             </ProtectedRoute>
           }
         />
-
-        {/* Dashboard (admin/staff only) */}
         <Route
           path="/dashboard/*"
           element={
