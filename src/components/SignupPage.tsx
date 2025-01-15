@@ -1,16 +1,21 @@
+// src/components/SignupPage.tsx
 import React, { useState } from 'react';
 import { ChevronRight, Utensils } from 'lucide-react';
 import axios from 'axios';
 import { Link, useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 
 export default function SignupPage() {
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName]   = useState('');
+  const [phone, setPhone]         = useState('');
+  const [email, setEmail]         = useState('');
+  const [password, setPassword]   = useState('');
   const [passwordConfirmation, setPasswordConfirmation] = useState('');
-  const [errors, setErrors] = useState<string[]>([]);
-  const [success, setSuccess] = useState('');
+  const [errors, setErrors]       = useState<string[]>([]);
+  const [success, setSuccess]     = useState('');
 
+  const { loginWithJwtUser } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -20,20 +25,21 @@ export default function SignupPage() {
 
     try {
       const resp = await axios.post('http://localhost:3000/signup', {
-        name,
+        first_name: firstName,
+        last_name:  lastName,
+        phone,                // optional
         email,
         password,
         password_confirmation: passwordConfirmation,
+        restaurant_id: 1,     // Hardcoded or dynamic
       });
 
-      // If the API call succeeds:
-      setSuccess(resp.data.message || 'User created successfully!');
+      const { jwt, user } = resp.data;
+      // Immediately log in after successful signup
+      loginWithJwtUser(jwt, user);
 
-      // **Auto-redirect** to the login page:
-      navigate('/login');
-
-      // If you prefer to auto-login, you'd fetch a token here and store it,
-      // but for now let's do a simple redirect to /login.
+      setSuccess('User created & logged in successfully!');
+      navigate('/');
     } catch (err: any) {
       if (err.response?.data?.errors) {
         setErrors(err.response.data.errors);
@@ -45,21 +51,17 @@ export default function SignupPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-orange-50 to-white flex flex-col justify-center py-12 sm:px-6 lg:px-8">
-      {/* Subtle background pattern if desired */}
       <div className="absolute inset-0 z-0 opacity-10 pointer-events-none">
-        {/* ... wave or subtle pattern ... */}
+        {/* optional background pattern */}
       </div>
 
       <div className="sm:mx-auto sm:w-full sm:max-w-md relative z-10">
         <div className="flex justify-center">
-          <div
-            className="w-20 h-20 bg-orange-600 rounded-full flex items-center justify-center 
-                       shadow-lg transform hover:rotate-180 transition-transform duration-500"
-          >
+          <div className="w-20 h-20 bg-orange-600 rounded-full flex items-center justify-center shadow-lg 
+                         transform hover:rotate-180 transition-transform duration-500">
             <Utensils className="h-10 w-10 text-white" />
           </div>
         </div>
-
         <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
           Create an Account
         </h2>
@@ -70,7 +72,7 @@ export default function SignupPage() {
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md relative z-10">
         <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10 relative overflow-hidden">
-          {/* Show success or errors */}
+          {/* Success or Errors */}
           {success && (
             <div className="bg-green-50 border border-green-200 text-green-600 px-4 py-3 rounded-md mb-4">
               {success}
@@ -85,28 +87,63 @@ export default function SignupPage() {
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Name */}
+            {/* First Name */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                First Name
+              </label>
               <input
                 type="text"
-                placeholder="Your name"
-                className="w-full px-3 py-2 border border-gray-300 
-                           rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
+                placeholder="John"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md 
+                           focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
                 required
+              />
+            </div>
+
+            {/* Last Name */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Last Name
+              </label>
+              <input
+                type="text"
+                placeholder="Doe"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md 
+                           focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                required
+              />
+            </div>
+
+            {/* Phone (optional) */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Phone (Optional)
+              </label>
+              <input
+                type="tel"
+                placeholder="(Optional) Phone number"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md 
+                           focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
               />
             </div>
 
             {/* Email */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Email
+              </label>
               <input
                 type="email"
-                placeholder="Email"
-                className="w-full px-3 py-2 border border-gray-300 
-                           rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                placeholder="john@example.com"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md 
+                           focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -115,12 +152,14 @@ export default function SignupPage() {
 
             {/* Password */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Password
+              </label>
               <input
                 type="password"
-                placeholder="Password"
-                className="w-full px-3 py-2 border border-gray-300 
-                           rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                placeholder="Enter a strong password"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md 
+                           focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
@@ -129,24 +168,26 @@ export default function SignupPage() {
 
             {/* Confirm Password */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Confirm Password</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Confirm Password
+              </label>
               <input
                 type="password"
                 placeholder="Confirm Password"
-                className="w-full px-3 py-2 border border-gray-300 
-                           rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md 
+                           focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
                 value={passwordConfirmation}
                 onChange={(e) => setPasswordConfirmation(e.target.value)}
                 required
               />
             </div>
 
-            {/* Submit */}
+            {/* Submit Button */}
             <div>
               <button
                 type="submit"
-                className="group relative w-full flex justify-center py-2 px-4 
-                           rounded-md shadow-sm text-sm font-medium text-white bg-orange-600 
+                className="group relative w-full flex justify-center py-2 px-4 rounded-md 
+                           shadow-sm text-sm font-medium text-white bg-orange-600 
                            hover:bg-orange-700 focus:outline-none"
               >
                 <span className="absolute right-3 inset-y-0 flex items-center">
@@ -157,7 +198,7 @@ export default function SignupPage() {
             </div>
           </form>
 
-          {/* "Already have an account?" link to login */}
+          {/* Link to Login */}
           <div className="mt-4 text-center text-sm text-gray-600">
             Already have an account?{' '}
             <Link to="/login" className="text-orange-600 hover:text-orange-700 font-medium">

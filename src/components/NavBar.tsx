@@ -36,6 +36,11 @@ export default function NavBar() {
     navigate('/login');
   };
 
+  // Helper to display the user's full name if available, else fallback to email
+  const displayName = user && user.first_name && user.last_name
+    ? `${user.first_name} ${user.last_name}`
+    : user?.email;
+
   return (
     <header className="bg-white shadow-sm">
       <div className="max-w-7xl mx-auto px-4">
@@ -69,12 +74,6 @@ export default function NavBar() {
                 >
                   Sign In
                 </Link>
-                <Link
-                  to="/signup"
-                  className="text-orange-600 hover:text-orange-700 font-medium"
-                >
-                  Sign Up
-                </Link>
               </div>
             ) : (
               // If user logged in => user dropdown
@@ -85,7 +84,7 @@ export default function NavBar() {
                 >
                   {/* Use Lucide's <User /> icon */}
                   <User className="w-5 h-5" />
-                  <span>{user.name || user.email}</span>
+                  <span>{displayName}</span>
                   {/* Minimal caret or arrow */}
                   <svg
                     xmlns="http://www.w3.org/2000/svg"

@@ -7,7 +7,7 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* 
-         No local <nav> here. NavBar is in App.tsx 
+         We rely on the NavBar in App.tsx, so no local <nav> here 
       */}
 
       {/* Hero Section */}
@@ -42,6 +42,11 @@ export default function HomePage() {
             Book your seat at our conveyor belt for a unique dining experience
           </p>
         </div>
+
+        {/* 
+          Updated ReservationForm handles first/last names, 
+          optional fields for logged-in users, etc.
+        */}
         <ReservationForm />
       </div>
 
