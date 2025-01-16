@@ -1,5 +1,4 @@
 // src/components/StaffDashboard.tsx
-
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
@@ -26,8 +25,8 @@ interface Reservation {
   contact_phone?: string;
   contact_email?: string;
   party_size?: number;
-  status?: string;       
-  seat_labels?: string[]; 
+  status?: string;       // "booked", "seated", "finished", etc.
+  seat_labels?: string[]; // We'll fill this ourselves to show which seat(s)
   start_time?: string;
 }
 
@@ -38,7 +37,7 @@ interface WaitlistEntry {
   contact_phone?: string;
   party_size?: number;
   check_in_time?: string;
-  status?: string;
+  status?: string;       // "waiting", "seated", "removed", etc.
   seat_labels?: string[];
 }
 
@@ -49,22 +48,30 @@ export default function StaffDashboard() {
     'reservations' | 'waitlist' | 'seating' | 'layout'
   >('reservations');
 
+  // Data
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [waitlist, setWaitlist] = useState<WaitlistEntry[]>([]);
 
+  // Searching & date filtering
   const [searchTerm, setSearchTerm] = useState('');
   const [dateFilter, setDateFilter] = useState(
     new Date().toISOString().split('T')[0]
   );
 
+  // For editing or creating reservations
   const [selectedReservation, setSelectedReservation] =
     useState<Reservation | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
 
   useEffect(() => {
+    // On mount, fetch everything
     fetchData();
   }, []);
 
+  /**
+   * We'll fetch reservations, waitlist, and occupant–seat info
+   * so we can see who’s seated where (seat_labels).
+   */
   async function fetchData() {
     console.log('[StaffDashboard] fetchData() called.');
     await fetchReservations();
@@ -72,11 +79,14 @@ export default function StaffDashboard() {
     await fetchOccupancyMap();
   }
 
+  /** 1) Reservations */
   async function fetchReservations() {
     console.log('[StaffDashboard] fetchReservations()...');
     try {
       const resp = await axios.get<Reservation[]>('http://localhost:3000/reservations');
       console.log('fetchReservations =>', resp.data);
+
+      // Sort earliest -> latest
       const sorted = resp.data.slice().sort((a, b) => {
         const dateA = new Date(a.start_time || '').getTime();
         const dateB = new Date(b.start_time || '').getTime();
@@ -88,6 +98,7 @@ export default function StaffDashboard() {
     }
   }
 
+  /** 2) Waitlist */
   async function fetchWaitlist() {
     console.log('[StaffDashboard] fetchWaitlist()...');
     try {
@@ -99,14 +110,16 @@ export default function StaffDashboard() {
     }
   }
 
-  /** occupant–seat map => GET /seat_allocations => occupant + seat_label. */
+  /** 3) occupant–seat map => GET /seat_allocations => occupant + seat_label. */
   async function fetchOccupancyMap() {
     console.log('[StaffDashboard] fetchOccupancyMap()...');
     try {
       const resp = await axios.get<any[]>('http://localhost:3000/seat_allocations');
       console.log('fetchOccupancyMap => seat_allocations =>', resp.data);
 
+      // occupantKey => seat_labels
       const occupantSeatsMap: Record<string, string[]> = {};
+
       resp.data.forEach((alloc) => {
         const occupantKey = alloc.reservation_id
           ? `reservation-${alloc.reservation_id}`
@@ -137,33 +150,48 @@ export default function StaffDashboard() {
       );
     } catch (err) {
       console.error('Error fetching seat_allocations:', err);
+      // Possibly 404 or 403 if not implemented or user not authorized
     }
   }
 
-  const filteredReservations = reservations.filter((r) => {
-    const name = r.contact_name?.toLowerCase() ?? '';
-    const phone = r.contact_phone ?? '';
-    const email = r.contact_email?.toLowerCase() ?? '';
-    const matchesSearch =
-      name.includes(searchTerm.toLowerCase()) ||
-      phone.includes(searchTerm) ||
-      email.includes(searchTerm);
+  // ------------------------------------------------------------
+  // Filter logic
+  //
+  // Hide reservations if status === 'finished' or 'canceled'
+  // (Feel free to adjust which statuses you exclude.)
+  // ------------------------------------------------------------
+  const filteredReservations = reservations
+    .filter((r) => r.status !== 'finished' && r.status !== 'canceled')
+    .filter((r) => {
+      const name = r.contact_name?.toLowerCase() ?? '';
+      const phone = r.contact_phone ?? '';
+      const email = r.contact_email?.toLowerCase() ?? '';
+      const matchesSearch =
+        name.includes(searchTerm.toLowerCase()) ||
+        phone.includes(searchTerm) ||
+        email.includes(searchTerm);
 
-    const dtStr = (r.start_time || '').substring(0, 10);
-    const matchesDate = dtStr === dateFilter;
-    return matchesSearch && matchesDate;
-  });
+      const dtStr = (r.start_time || '').substring(0, 10);
+      const matchesDate = dtStr === dateFilter;
+      return matchesSearch && matchesDate;
+    });
 
-  const filteredWaitlist = waitlist.filter((w) => {
-    const wName = w.contact_name?.toLowerCase() ?? '';
-    const wPhone = w.contact_phone ?? '';
-    return wName.includes(searchTerm.toLowerCase()) || wPhone.includes(searchTerm);
-  });
+  // Hide waitlist entries if status === 'removed'
+  // (Feel free to adjust which statuses you exclude.)
+  const filteredWaitlist = waitlist
+    .filter((w) => w.status !== 'removed')
+    .filter((w) => {
+      const wName = w.contact_name?.toLowerCase() ?? '';
+      const wPhone = w.contact_phone ?? '';
+      return wName.includes(searchTerm.toLowerCase()) || wPhone.includes(searchTerm);
+    });
 
+  // Reservation row => open modal
   function handleRowClick(res: Reservation) {
     setSelectedReservation(res);
   }
 
+  // Delete or Edit
   async function handleDeleteReservation(id: number) {
     console.log('[StaffDashboard] handleDeleteReservation =>', id);
     try {
@@ -185,6 +213,7 @@ export default function StaffDashboard() {
         contact_email: updated.contact_email,
         status: updated.status,
       });
+      // Refresh
       await fetchReservations();
       await fetchOccupancyMap();
       setSelectedReservation(null);
@@ -197,18 +226,19 @@ export default function StaffDashboard() {
     setSelectedReservation(null);
   }
 
+  // Date arrow nav
   function handlePrevDay() {
     const current = new Date(dateFilter);
     current.setDate(current.getDate() - 1);
     setDateFilter(current.toISOString().split('T')[0]);
   }
-
   function handleNextDay() {
     const current = new Date(dateFilter);
     current.setDate(current.getDate() + 1);
     setDateFilter(current.toISOString().split('T')[0]);
   }
 
+  // New Reservation
   function handleCreateNewReservation() {
     setShowCreateModal(true);
   }
@@ -217,6 +247,7 @@ export default function StaffDashboard() {
   }
   async function handleCreateReservationSuccess() {
     setShowCreateModal(false);
+    // Refresh
     await fetchReservations();
     await fetchOccupancyMap();
   }
@@ -328,7 +359,7 @@ export default function StaffDashboard() {
               </div>
             </div>
 
-            {/* Reservations table */}
+            {/* Table of filtered reservations */}
             <div className="overflow-x-auto mt-4">
               <table className="min-w-full divide-y divide-gray-200 text-sm">
                 <thead className="bg-gray-50">
@@ -353,22 +384,23 @@ export default function StaffDashboard() {
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filteredReservations.map((res) => {
                     const dt = new Date(res.start_time || '');
-                    const dateString = dt.toLocaleDateString(undefined, {
+                    const dateStr = dt.toLocaleDateString(undefined, {
                       year: 'numeric',
                       month: 'numeric',
                       day: 'numeric',
                     });
-                    const timeString = dt.toLocaleTimeString(undefined, {
+                    const timeStr = dt.toLocaleTimeString(undefined, {
                       hour: 'numeric',
                       minute: '2-digit',
                       hour12: true,
                     });
-                    const dateTimeDisplay = `${dateString}, ${timeString}`;
+                    const dateTimeDisplay = `${dateStr}, ${timeStr}`;
 
-                    // if occupant is seated => show seat_labels
-                    const seatLabelText = res.seat_labels?.length
-                      ? ` (Seated at ${res.seat_labels.join(', ')})`
-                      : '';
+                    // if occupant is seated => show seat labels
+                    const seatLabelText =
+                      res.seat_labels && res.seat_labels.length > 0
+                        ? ` (Seated at ${res.seat_labels.join(', ')})`
+                        : '';
 
                     return (
                       <tr
@@ -411,30 +443,34 @@ export default function StaffDashboard() {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           {res.status === 'booked' && (
-                            <span className="px-2 inline-flex text-xs leading-5 
-                                             font-semibold rounded-full 
-                                             bg-orange-100 text-orange-800">
+                            <span className="px-2 inline-flex text-xs 
+                                             leading-5 font-semibold 
+                                             rounded-full bg-orange-100 text-orange-800">
                               booked
                             </span>
                           )}
                           {res.status === 'canceled' && (
-                            <span className="px-2 inline-flex text-xs leading-5 
-                                             font-semibold rounded-full 
-                                             bg-red-100 text-red-800">
+                            <span className="px-2 inline-flex text-xs 
+                                             leading-5 font-semibold 
+                                             rounded-full bg-red-100 text-red-800">
                               canceled
                             </span>
                           )}
                           {res.status === 'seated' && (
-                            <span className="px-2 inline-flex text-xs leading-5 
-                                             font-semibold rounded-full 
-                                             bg-green-100 text-green-800">
+                            <span className="px-2 inline-flex text-xs 
+                                             leading-5 font-semibold 
+                                             rounded-full bg-green-100 text-green-800">
                               seated
                             </span>
                           )}
-                          {!['booked', 'canceled', 'seated'].includes(res.status ?? '') && (
-                            <span className="px-2 inline-flex text-xs leading-5 
-                                             font-semibold rounded-full 
-                                             bg-gray-200 text-gray-800">
+                          {/* If the status is none of the above:
+                              (e.g. "finished" or any custom) */}
+                          {!['booked', 'canceled', 'seated'].includes(
+                            res.status ?? ''
+                          ) && (
+                            <span className="px-2 inline-flex text-xs 
+                                             leading-5 font-semibold 
+                                             rounded-full bg-gray-200 text-gray-800">
                               {res.status ?? 'N/A'}
                             </span>
                           )}
@@ -471,6 +507,7 @@ export default function StaffDashboard() {
                 />
               </div>
             </div>
+
             <div className="overflow-x-auto mt-4">
               <table className="min-w-full divide-y divide-gray-200 text-sm">
                 <thead className="bg-gray-50">
@@ -499,9 +536,10 @@ export default function StaffDashboard() {
                       ? 'N/A'
                       : joined.toLocaleString();
 
-                    const seatLabelText = w.seat_labels?.length
-                      ? ` (Seated at ${w.seat_labels.join(', ')})`
-                      : '';
+                    const seatLabelText =
+                      w.seat_labels && w.seat_labels.length > 0
+                        ? ` (Seated at ${w.seat_labels.join(', ')})`
+                        : '';
 
                     return (
                       <tr key={w.id} className="hover:bg-gray-50">
@@ -587,7 +625,7 @@ export default function StaffDashboard() {
         )}
       </div>
 
-      {/* -- Reservation modal, new reservation modal, etc. -- */}
+      {/* Reservation Modal (edit or delete) */}
       {selectedReservation && (
         <ReservationModal
           reservation={selectedReservation}
@@ -596,6 +634,8 @@ export default function StaffDashboard() {
           onEdit={handleEditReservation}
         />
       )}
+
+      {/* New Reservation Modal */}
       {showCreateModal && (
         <ReservationFormModal
           onClose={handleCloseCreateModal}
