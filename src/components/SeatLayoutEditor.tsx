@@ -3,11 +3,11 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import {
-  Save, Trash2, Plus, Settings, Edit2,
+  Save, Trash2, Plus as LucidePlus, Settings, Edit2,
   Minus, Maximize
 } from 'lucide-react';
 
-// Data interfaces
+/** ---------- Data Interfaces ---------- **/
 interface LayoutData {
   id: number;
   name: string;
@@ -20,10 +20,10 @@ interface LayoutData {
 interface DBSeat {
   id: number;
   seat_section_id: number;
-  label?: string;
+  label?: string;         // e.g. "Seat #5"
   position_x: number;
   position_y: number;
-  status: string;   // "free", "reserved", "occupied"
+  status: string;         // "free", "reserved", or "occupied"
   capacity: number;
 }
 
@@ -44,7 +44,7 @@ interface SectionConfig {
   orientation: 'vertical' | 'horizontal';
 }
 
-// Predefined layout size presets
+/** “auto” (compute bounding box) or preset canvas sizes. */
 const LAYOUT_PRESETS = {
   auto:    { width: 0,    height: 0,    seatScale: 1.0 },
   small:   { width: 1200, height: 800,  seatScale: 1.0 },
@@ -52,41 +52,74 @@ const LAYOUT_PRESETS = {
   large:   { width: 3000, height: 1800, seatScale: 1.0 },
 };
 
+/** Clamp a value between min & max. */
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
 
+/** Extract numeric portion of "Seat #12" => 12; returns 0 if no digits. */
+function seatLabelToNumber(label?: string): number {
+  if (!label) return 0;
+  const match = label.match(/#(\d+)/);
+  if (!match) return 0;
+  return parseInt(match[1], 10) || 0;
+}
+
+/** 
+ * Compute the spacing between the last two seats in `seatsAsc`, 
+ * based on orientation. If fewer than 2 seats, return defaultSpacing. 
+ */
+function measureExistingGap(
+  seatsAsc: DBSeat[], 
+  orientation: 'vertical'|'horizontal', 
+  defaultSpacing = 70
+): number {
+  if (seatsAsc.length < 2) {
+    return defaultSpacing; 
+  }
+  // seatsAsc is sorted by label ascending
+  const secondLast = seatsAsc[seatsAsc.length - 2];
+  const last       = seatsAsc[seatsAsc.length - 1];
+
+  if (orientation === 'vertical') {
+    const diff = last.position_y - secondLast.position_y;
+    return diff <= 5 ? defaultSpacing : diff; 
+  } else {
+    const diff = last.position_x - secondLast.position_x;
+    return diff <= 5 ? defaultSpacing : diff; 
+  }
+}
+
+/** ---------- Main Component ---------- **/
 export default function SeatLayoutEditor() {
-  // All layouts from the database
+  // All available layouts from DB
   const [allLayouts, setAllLayouts] = useState<LayoutData[]>([]);
-  // Active layout
+
+  // Currently active layout
   const [activeLayoutId, setActiveLayoutId] = useState<number | null>(null);
   const [layoutName, setLayoutName] = useState('New Layout');
-
-  // Layout seat sections
   const [sections, setSections] = useState<SeatSection[]>([]);
 
-  // Layout sizing approach: "auto" or a preset
+  // Layout size & seat scaling
   const [layoutSize, setLayoutSize] = useState<'auto'|'small'|'medium'|'large'>('medium');
-  // Canvas dimension & seat scaling
-  const [canvasWidth, setCanvasWidth] = useState(2000);
+  const [canvasWidth, setCanvasWidth]   = useState(2000);
   const [canvasHeight, setCanvasHeight] = useState(1200);
-  const [seatScale, setSeatScale] = useState(1.0);
+  const [seatScale, setSeatScale]       = useState(1.0);
 
-  // Zoom factor (applied via CSS transform)
+  // Zoom for the workspace
   const [zoom, setZoom] = useState(1.0);
 
-  // Dragging
+  // Dragging logic
   const [isDragging, setIsDragging] = useState(false);
   const [selectedSection, setSelectedSection] = useState<string | null>(null);
-  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
+  const [dragStart, setDragStart]   = useState<{ x: number; y: number } | null>(null);
 
-  // Grid toggle
+  // Show/hide grid
   const [showGrid, setShowGrid] = useState(true);
 
-  // Add/edit seat sections
+  // Section add/edit
   const [showSectionDialog, setShowSectionDialog] = useState(false);
-  const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
+  const [editingSectionId, setEditingSectionId]   = useState<string | null>(null);
   const [sectionConfig, setSectionConfig] = useState<SectionConfig>({
     name: '',
     seatCount: 4,
@@ -95,9 +128,9 @@ export default function SeatLayoutEditor() {
   });
   const [seatCapacity, setSeatCapacity] = useState(1);
 
-  // -------------------------------------------------------
-  // 1) On mount, load all layouts
-  // -------------------------------------------------------
+  /** -------------------------------
+   *  1) On mount, load all layouts
+   * ------------------------------- **/
   useEffect(() => {
     async function loadLayouts() {
       try {
@@ -117,7 +150,7 @@ export default function SeatLayoutEditor() {
     loadLayouts();
   }, []);
 
-  // Whenever sections or layoutSize changes, adjust canvas
+  /** Whenever sections or layoutSize changes, re-check canvas sizing. */
   useEffect(() => {
     if (layoutSize === 'auto') {
       computeAutoBounds();
@@ -129,9 +162,7 @@ export default function SeatLayoutEditor() {
     }
   }, [layoutSize, sections]);
 
-  // -------------------------------------------------------
-  // 2) Auto-bounds if layoutSize === "auto"
-  // -------------------------------------------------------
+  /** If layoutSize=auto, compute bounding box from seats. */
   function computeAutoBounds() {
     if (!sections || sections.length === 0) {
       setCanvasWidth(1200);
@@ -139,19 +170,17 @@ export default function SeatLayoutEditor() {
       setSeatScale(1.0);
       return;
     }
-    let minX = Infinity;
-    let maxX = -Infinity;
-    let minY = Infinity;
-    let maxY = -Infinity;
+    let minX = Infinity, maxX = -Infinity;
+    let minY = Infinity, maxY = -Infinity;
 
     sections.forEach((sec) => {
       sec.seats.forEach((seat) => {
-        const seatGlobalX = sec.offsetX + seat.position_x;
-        const seatGlobalY = sec.offsetY + seat.position_y;
-        if (seatGlobalX < minX) minX = seatGlobalX;
-        if (seatGlobalX > maxX) maxX = seatGlobalX;
-        if (seatGlobalY < minY) minY = seatGlobalY;
-        if (seatGlobalY > maxY) maxY = seatGlobalY;
+        const globalX = sec.offsetX + seat.position_x;
+        const globalY = sec.offsetY + seat.position_y;
+        if (globalX < minX) minX = globalX;
+        if (globalX > maxX) maxX = globalX;
+        if (globalY < minY) minY = globalY;
+        if (globalY > maxY) maxY = globalY;
       });
     });
 
@@ -163,9 +192,7 @@ export default function SeatLayoutEditor() {
     setSeatScale(1.0);
   }
 
-  // -------------------------------------------------------
-  // 3) Switching layout from dropdown
-  // -------------------------------------------------------
+  /** Switch active layout from dropdown. */
   function handleSelectLayout(id: number) {
     setActiveLayoutId(id);
     const layout = allLayouts.find((l) => l.id === id);
@@ -175,9 +202,9 @@ export default function SeatLayoutEditor() {
     }
   }
 
-  // -------------------------------------------------------
-  // 4) Drag & drop seat sections
-  // -------------------------------------------------------
+  /** ---------------------------
+   *  2) Drag & Drop seat sections
+   * --------------------------- **/
   function handleDragStart(e: React.MouseEvent, sectionId: string) {
     e.stopPropagation();
     setIsDragging(true);
@@ -210,9 +237,9 @@ export default function SeatLayoutEditor() {
     setDragStart(null);
   }
 
-  // -------------------------------------------------------
-  // 5) Creating/Editing seat sections
-  // -------------------------------------------------------
+  /** ------------------------------
+   *  3) Add/Edit seat sections
+   * ------------------------------ **/
   function handleAddSection() {
     setEditingSectionId(null);
     setSectionConfig({
@@ -243,12 +270,19 @@ export default function SeatLayoutEditor() {
     setShowSectionDialog(true);
   }
 
+  /**
+   * Create or edit the seat section:
+   *  - When adding seats, measure the existing gap and place them uniformly.
+   *  - When removing seats, sort by numeric seat label descending and remove from highest label.
+   *  - Catch 404s on seat deletion to ignore seats that are already gone.
+   */
   async function createOrEditSection() {
     if (editingSectionId) {
-      // rename or re‐type existing seats
+      // 1) Updating an existing section
+      const targetId = editingSectionId;
       setSections((prev) =>
         prev.map((sec) => {
-          if (sec.id !== editingSectionId) return sec;
+          if (sec.id !== targetId) return sec;
           return {
             ...sec,
             name: sectionConfig.name,
@@ -257,42 +291,165 @@ export default function SeatLayoutEditor() {
           };
         })
       );
-    } else {
-      // brand new seats in DB
-      const newSectionId = `section-${sections.length + 1}`;
-      const newSeats: DBSeat[] = [];
-      for (let i = 0; i < sectionConfig.seatCount; i++) {
-        const seatData = await createSeatOnServer({
-          seat_section_id: 1, // or dynamic
-          label: `Seat #${i + 1}`,
-          index: i,
-          orientation: sectionConfig.orientation,
-          type: sectionConfig.type,
-          capacity: seatCapacity,
-        });
-        newSeats.push(seatData);
+
+      const oldSection = sections.find((s) => s.id === targetId);
+      if (!oldSection) {
+        setShowSectionDialog(false);
+        return;
       }
 
-      const newSec: SeatSection = {
-        id: newSectionId,
-        name: sectionConfig.name,
-        type: sectionConfig.type,
-        orientation: sectionConfig.orientation,
-        offsetX: 100,
-        offsetY: 100,
-        seats: newSeats,
-      };
-      setSections((prev) => [...prev, newSec]);
+      const oldCount = oldSection.seats.length;
+      const newCount = sectionConfig.seatCount;
+
+      // 1A) If seatCount increased => create new seats
+      if (newCount > oldCount) {
+        const seatsToAdd = newCount - oldCount;
+        console.log(`Adding ${seatsToAdd} seat(s) to section "${oldSection.name}".`);
+
+        // Sort existing seats by label ascending to measure the gap
+        const seatsAsc = [...oldSection.seats].sort(
+          (a, b) => seatLabelToNumber(a.label) - seatLabelToNumber(b.label)
+        );
+
+        // If no seats exist, we’ll place seat #1 at (0,0)
+        // Otherwise, the last seat in seatsAsc will be our anchor
+        let maxLabelNum = 0;
+        let anchorX = 0, anchorY = 0;
+
+        if (seatsAsc.length > 0) {
+          const lastSeatAsc = seatsAsc[seatsAsc.length - 1];
+          maxLabelNum = seatLabelToNumber(lastSeatAsc.label);
+          anchorX = lastSeatAsc.position_x;
+          anchorY = lastSeatAsc.position_y;
+        }
+        // measure the actual gap in x or y
+        const gap = measureExistingGap(seatsAsc, sectionConfig.orientation, 70);
+
+        const createPromises: Promise<DBSeat>[] = [];
+        for (let i = 1; i <= seatsToAdd; i++) {
+          const newLabelNum = maxLabelNum + i;
+          let overrideX = anchorX, overrideY = anchorY;
+
+          if (sectionConfig.orientation === 'vertical') {
+            overrideY = anchorY + gap * i; 
+          } else {
+            overrideX = anchorX + gap * i; 
+          }
+
+          createPromises.push(
+            createSeatOnServer({
+              seat_section_id: seatsAsc[0]?.seat_section_id || 1,
+              label: `Seat #${newLabelNum}`,
+              index: oldCount + i - 1,
+              orientation: sectionConfig.orientation,
+              type: sectionConfig.type,
+              capacity: seatCapacity,
+              overrideX,
+              overrideY,
+            })
+          );
+        }
+
+        Promise.all(createPromises)
+          .then((createdSeats) => {
+            // Merge them into the correct section
+            setSections((prev2) =>
+              prev2.map((sec2) => {
+                if (sec2.id !== targetId) return sec2;
+                return { ...sec2, seats: [...sec2.seats, ...createdSeats] };
+              })
+            );
+          })
+          .catch((err) => {
+            console.error('Error adding seats:', err);
+            alert('Failed to add seats. Check console.');
+          });
+      }
+
+      // 1B) If seatCount decreased => remove seats
+      else if (newCount < oldCount) {
+        const seatsToRemove = oldCount - newCount;
+        console.log(`Removing ${seatsToRemove} seat(s) from section "${oldSection.name}".`);
+
+        // Sort seats by numeric label descending, remove the top seats
+        const seatsDesc = [...oldSection.seats].sort(
+          (a, b) => seatLabelToNumber(b.label) - seatLabelToNumber(a.label)
+        );
+        const toRemove = seatsDesc.slice(0, seatsToRemove);
+
+        const deletePromises = toRemove.map((seat) =>
+          axios.delete(`http://localhost:3000/seats/${seat.id}`).catch((err) => {
+            if (err.response && err.response.status === 404) {
+              console.warn(`Seat #${seat.id} was already removed (404). Ignoring...`);
+              return;
+            }
+            throw err;
+          })
+        );
+
+        Promise.all(deletePromises)
+          .then(() => {
+            // Remove from local state
+            setSections((prev2) =>
+              prev2.map((sec2) => {
+                if (sec2.id !== targetId) return sec2;
+                const updatedSeats = sec2.seats.filter(
+                  (s) => !toRemove.some((rm) => rm.id === s.id)
+                );
+                return { ...sec2, seats: updatedSeats };
+              })
+            );
+          })
+          .catch((err) => {
+            console.error('Error removing seats:', err);
+            alert('Failed to remove seats. Check console.');
+          });
+      }
+    } else {
+      // 2) brand new section
+      const newSectionId = `section-${sections.length + 1}`;
+      const createPromises: Promise<DBSeat>[] = [];
+
+      for (let i = 0; i < sectionConfig.seatCount; i++) {
+        createPromises.push(
+          createSeatOnServer({
+            seat_section_id: 1,  // or dynamic
+            label: `Seat #${i + 1}`,
+            index: i,
+            orientation: sectionConfig.orientation,
+            type: sectionConfig.type,
+            capacity: seatCapacity,
+          })
+        );
+      }
+
+      try {
+        const createdSeats = await Promise.all(createPromises);
+        const newSec: SeatSection = {
+          id: newSectionId,
+          name: sectionConfig.name,
+          type: sectionConfig.type,
+          orientation: sectionConfig.orientation,
+          offsetX: 100,
+          offsetY: 100,
+          seats: createdSeats,
+        };
+        setSections((prev) => [...prev, newSec]);
+      } catch (err) {
+        console.error('Error creating seats:', err);
+        alert('Failed to create seats—check console.');
+      }
     }
 
     setShowSectionDialog(false);
   }
 
+  /** Possibly remove entire section from DB as well. For simplicity, we skip that. */
   function deleteSection(sectionId: string) {
     setSections((prev) => prev.filter((s) => s.id !== sectionId));
   }
 
-  // create seats on server
+  /** Helper: create new seat in DB with optional overrideX, overrideY. */
   interface CreateSeatParams {
     seat_section_id: number;
     label: string;
@@ -300,59 +457,69 @@ export default function SeatLayoutEditor() {
     orientation: 'vertical' | 'horizontal';
     type: 'counter' | 'table';
     capacity: number;
+    overrideX?: number;
+    overrideY?: number;
   }
-  async function createSeatOnServer({
+  function createSeatOnServer({
     seat_section_id,
     label,
     index,
     orientation,
     type,
     capacity,
+    overrideX,
+    overrideY,
   }: CreateSeatParams): Promise<DBSeat> {
+    // Default positioning logic
     const spacing = 70;
     let position_x = 0;
     let position_y = 0;
 
-    if (type === 'counter') {
-      if (orientation === 'vertical') {
-        position_y = index * spacing;
-      } else {
-        position_x = index * spacing;
-      }
+    if (typeof overrideX === 'number' || typeof overrideY === 'number') {
+      // If the caller provided explicit position => use it
+      position_x = overrideX || 0;
+      position_y = overrideY || 0;
     } else {
-      // "table"
-      if (orientation === 'vertical') {
-        const cols = 2;
-        const colIndex = index % cols;
-        const rowIndex = Math.floor(index / cols);
-        position_x = colIndex * spacing;
-        position_y = rowIndex * spacing;
+      // Otherwise compute automatically
+      if (type === 'counter') {
+        if (orientation === 'vertical') {
+          position_y = index * spacing;
+        } else {
+          position_x = index * spacing;
+        }
       } else {
-        // horizontal
-        const rows = 2;
-        const rowIndex = index % rows;
-        const colIndex = Math.floor(index / rows);
-        position_x = colIndex * spacing;
-        position_y = rowIndex * spacing;
+        // table => 2D arrangement
+        if (orientation === 'vertical') {
+          const cols = 2;
+          const colIndex = index % cols;
+          const rowIndex = Math.floor(index / cols);
+          position_x = colIndex * spacing;
+          position_y = rowIndex * spacing;
+        } else {
+          const rows = 2;
+          const rowIndex = index % rows;
+          const colIndex = Math.floor(index / rows);
+          position_x = colIndex * spacing;
+          position_y = rowIndex * spacing;
+        }
       }
     }
 
-    const resp = await axios.post<DBSeat>('http://localhost:3000/seats', {
-      seat: {
-        seat_section_id,
-        label,
-        position_x,
-        position_y,
-        status: 'free',
-        capacity,
-      },
-    });
-    return resp.data;
+    return axios
+      .post<DBSeat>('http://localhost:3000/seats', {
+        seat: {
+          seat_section_id,
+          label,
+          position_x,
+          position_y,
+          status: 'free',
+          capacity,
+        },
+      })
+      .then((resp) => resp.data);
   }
 
-  // -------------------------------------------------------
-  // 6) Saving layout
-  // -------------------------------------------------------
+  /** 4) Save entire layout to server. */
   async function handleSaveLayout() {
     try {
       const payload = {
@@ -379,9 +546,7 @@ export default function SeatLayoutEditor() {
     }
   }
 
-  // -------------------------------------------------------
-  // 7) Zoom controls
-  // -------------------------------------------------------
+  /** 5) Zoom controls. */
   function handleZoomIn() {
     setZoom((prev) => Math.min(prev + 0.25, 5.0));
   }
@@ -392,9 +557,10 @@ export default function SeatLayoutEditor() {
     setZoom(1.0);
   }
 
+  /** ---------- Render the Editor ---------- **/
   return (
     <div className="relative px-4 pb-6">
-      {/* ----- Top Controls ----- */}
+      {/* ---------- Top Controls ---------- */}
       <div className="mb-4 flex items-center space-x-4">
         {/* Layout dropdown */}
         <div>
@@ -413,7 +579,7 @@ export default function SeatLayoutEditor() {
           </select>
         </div>
 
-        {/* Layout name input */}
+        {/* Layout name */}
         <input
           type="text"
           value={layoutName}
@@ -422,12 +588,14 @@ export default function SeatLayoutEditor() {
           placeholder="Layout Name"
         />
 
-        {/* Layout size => auto or preset */}
+        {/* Layout size */}
         <div className="flex items-center space-x-2">
           <label className="text-sm font-medium text-gray-700">Layout Size:</label>
           <select
             value={layoutSize}
-            onChange={(e) => setLayoutSize(e.target.value as 'auto'|'small'|'medium'|'large')}
+            onChange={(e) =>
+              setLayoutSize(e.target.value as 'auto'|'small'|'medium'|'large')
+            }
             className="px-2 py-1 border border-gray-300 rounded"
           >
             <option value="auto">Auto (by seats)</option>
@@ -448,7 +616,7 @@ export default function SeatLayoutEditor() {
           Grid
         </button>
 
-        {/* Zoom UI */}
+        {/* Zoom */}
         <div className="flex items-center space-x-2">
           <button
             onClick={handleZoomOut}
@@ -463,7 +631,7 @@ export default function SeatLayoutEditor() {
             className="p-1 bg-gray-100 rounded hover:bg-gray-200"
             title="Zoom In"
           >
-            <Plus className="w-4 h-4" />
+            <LucidePlus className="w-4 h-4" />
           </button>
           <button
             onClick={handleZoomReset}
@@ -484,7 +652,7 @@ export default function SeatLayoutEditor() {
         </button>
       </div>
 
-      {/* ----- Scrollable container, bigger height ----- */}
+      {/* ---------- Scrollable container ---------- */}
       <div
         className="border border-gray-200 rounded-lg overflow-auto"
         style={{ width: '100%', height: '80vh', minHeight: '600px' }}
@@ -492,7 +660,6 @@ export default function SeatLayoutEditor() {
         onMouseUp={handleDragEnd}
         onMouseLeave={handleDragEnd}
       >
-        {/* Workspace with transform scale */}
         <div
           style={{
             width: canvasWidth,
@@ -522,7 +689,9 @@ export default function SeatLayoutEditor() {
                 className="mb-1 flex items-center justify-between bg-white/80 rounded px-2 py-1 shadow"
                 style={{ position: 'relative', zIndex: 2, cursor: 'default' }}
               >
-                <span className="font-medium text-sm text-gray-700">{section.name}</span>
+                <span className="font-medium text-sm text-gray-700">
+                  {section.name}
+                </span>
                 <div className="flex items-center space-x-1">
                   <button
                     onClick={(ev) => {
@@ -545,14 +714,14 @@ export default function SeatLayoutEditor() {
                 </div>
               </div>
 
-              {/* Seats */}
+              {/* Seats in this section */}
               <div style={{ position: 'relative' }}>
                 {section.seats.map((seat) => {
                   const seatDiameter = 64 * seatScale;
                   const seatX = seat.position_x * seatScale;
                   const seatY = seat.position_y * seatScale;
 
-                  let seatColor = 'bg-green-500';
+                  let seatColor = 'bg-green-500';  // free
                   if (seat.status === 'occupied') seatColor = 'bg-red-500';
                   if (seat.status === 'reserved') seatColor = 'bg-yellow-400';
 
@@ -574,8 +743,8 @@ export default function SeatLayoutEditor() {
                         ${seatColor}
                       `}
                       onClick={() => {
-                        console.log("Clicked seat:", seat.id, seat.label);
-                        // Possibly open seat detail or do something else
+                        console.log('Clicked seat:', seat.id, seat.label);
+                        // possibly open seat detail or do something else
                       }}
                     >
                       {seat.label ?? `Seat ${seat.id}`}
@@ -588,16 +757,16 @@ export default function SeatLayoutEditor() {
         </div>
       </div>
 
-      {/* Add Section button */}
+      {/* Add section button */}
       <button
         onClick={handleAddSection}
         className="flex items-center px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 shadow-lg mt-4"
       >
-        <Plus className="w-4 h-4 mr-2" />
+        <LucidePlus className="w-4 h-4 mr-2" />
         Add Section
       </button>
 
-      {/* Section creation/editing dialog */}
+      {/* Section dialog for create/edit */}
       {showSectionDialog && (
         <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
           <div className="bg-white rounded p-6 w-96 relative">
@@ -611,7 +780,7 @@ export default function SeatLayoutEditor() {
               {editingSectionId ? 'Edit Section' : 'Add Section'}
             </h3>
             <div className="space-y-4">
-              {/* Section Name */}
+              {/* Name */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Section Name
@@ -634,7 +803,7 @@ export default function SeatLayoutEditor() {
                 <input
                   type="number"
                   min={1}
-                  max={50}
+                  max={100}
                   value={sectionConfig.seatCount}
                   onChange={(e) => {
                     const val = parseInt(e.target.value, 10) || 1;
@@ -644,7 +813,7 @@ export default function SeatLayoutEditor() {
                 />
               </div>
 
-              {/* Section Type */}
+              {/* Type */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Section Type
@@ -697,10 +866,11 @@ export default function SeatLayoutEditor() {
                   className="w-full border border-gray-300 rounded px-3 py-2"
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  e.g. 1 for bar stool, 4 for a table, etc.
+                  e.g. 1 for a barstool, 4 for a table, etc.
                 </p>
               </div>
             </div>
+
             <div className="mt-6 flex justify-end space-x-2">
               <button
                 onClick={() => setShowSectionDialog(false)}
