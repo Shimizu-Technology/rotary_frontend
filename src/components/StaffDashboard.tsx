@@ -1,12 +1,16 @@
 // src/components/StaffDashboard.tsx
+
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 
+// Child components
 import SeatLayoutEditor from './SeatLayoutEditor';
 import ReservationModal from './ReservationModal';
 import ReservationFormModal from './ReservationFormModal';
 import FloorManager from './FloorManager';
+
+// Icons
 import {
   Clock,
   Users,
@@ -25,8 +29,8 @@ interface Reservation {
   contact_phone?: string;
   contact_email?: string;
   party_size?: number;
-  status?: string;       // "booked", "seated", "finished", etc.
-  seat_labels?: string[]; // We'll fill this ourselves to show which seat(s)
+  status?: string;        // "booked", "seated", "finished", "canceled", "reserved", "no_show", ...
+  seat_labels?: string[];
   start_time?: string;
 }
 
@@ -37,7 +41,7 @@ interface WaitlistEntry {
   contact_phone?: string;
   party_size?: number;
   check_in_time?: string;
-  status?: string;       // "waiting", "seated", "removed", etc.
+  status?: string;       // "waiting", "seated", "removed", "no_show", ...
   seat_labels?: string[];
 }
 
@@ -54,6 +58,7 @@ export default function StaffDashboard() {
 
   // Searching & date filtering
   const [searchTerm, setSearchTerm] = useState('');
+  // Default to "today"
   const [dateFilter, setDateFilter] = useState(
     new Date().toISOString().split('T')[0]
   );
@@ -110,7 +115,7 @@ export default function StaffDashboard() {
     }
   }
 
-  /** 3) occupant–seat map => GET /seat_allocations => occupant + seat_label. */
+  /** 3) occupant–seat map => GET /seat_allocations => occupant + seat_label */
   async function fetchOccupancyMap() {
     console.log('[StaffDashboard] fetchOccupancyMap()...');
     try {
@@ -150,43 +155,41 @@ export default function StaffDashboard() {
       );
     } catch (err) {
       console.error('Error fetching seat_allocations:', err);
-      // Possibly 404 or 403 if not implemented or user not authorized
     }
   }
 
-  // ------------------------------------------------------------
-  // Filter logic
-  //
-  // Hide reservations if status === 'finished' or 'canceled'
-  // (Feel free to adjust which statuses you exclude.)
-  // ------------------------------------------------------------
-  const filteredReservations = reservations
-    .filter((r) => r.status !== 'finished' && r.status !== 'canceled')
-    .filter((r) => {
-      const name = r.contact_name?.toLowerCase() ?? '';
-      const phone = r.contact_phone ?? '';
-      const email = r.contact_email?.toLowerCase() ?? '';
-      const matchesSearch =
-        name.includes(searchTerm.toLowerCase()) ||
-        phone.includes(searchTerm) ||
-        email.includes(searchTerm);
+  // -------------------------------------------
+  // Reservations tab: show all reservations
+  // for the chosen date (dateFilter), ignoring status
+  // plus searchTerm.
+  // -------------------------------------------
+  const allReservationsForDate = reservations.filter((r) => {
+    // Match date
+    const dtStr = (r.start_time || '').substring(0, 10);
+    const matchesDate = dtStr === dateFilter;
 
-      const dtStr = (r.start_time || '').substring(0, 10);
-      const matchesDate = dtStr === dateFilter;
-      return matchesSearch && matchesDate;
-    });
+    // Match search
+    const name = r.contact_name?.toLowerCase() ?? '';
+    const phone = r.contact_phone ?? '';
+    const email = r.contact_email?.toLowerCase() ?? '';
+    const searchLower = searchTerm.toLowerCase();
+    const matchesSearch =
+      name.includes(searchLower) ||
+      phone.includes(searchTerm) ||
+      email.includes(searchLower);
 
-  // Hide waitlist entries if status === 'removed'
-  // (Feel free to adjust which statuses you exclude.)
-  const filteredWaitlist = waitlist
-    .filter((w) => w.status !== 'removed')
-    .filter((w) => {
-      const wName = w.contact_name?.toLowerCase() ?? '';
-      const wPhone = w.contact_phone ?? '';
-      return wName.includes(searchTerm.toLowerCase()) || wPhone.includes(searchTerm);
-    });
+    return matchesDate && matchesSearch;
+  });
 
-  // Reservation row => open modal
+  // Waitlist tab: optionally filter or show all
+  const filteredWaitlist = waitlist.filter((w) => {
+    const wName = w.contact_name?.toLowerCase() ?? '';
+    const wPhone = w.contact_phone ?? '';
+    const searchLower = searchTerm.toLowerCase();
+    return wName.includes(searchLower) || wPhone.includes(searchTerm);
+  });
+
+  // row click => open modal
   function handleRowClick(res: Reservation) {
     setSelectedReservation(res);
   }
@@ -359,7 +362,7 @@ export default function StaffDashboard() {
               </div>
             </div>
 
-            {/* Table of filtered reservations */}
+            {/* Reservations table => show all statuses but only for dateFilter */}
             <div className="overflow-x-auto mt-4">
               <table className="min-w-full divide-y divide-gray-200 text-sm">
                 <thead className="bg-gray-50">
@@ -382,7 +385,7 @@ export default function StaffDashboard() {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {filteredReservations.map((res) => {
+                  {allReservationsForDate.map((res) => {
                     const dt = new Date(res.start_time || '');
                     const dateStr = dt.toLocaleDateString(undefined, {
                       year: 'numeric',
@@ -396,11 +399,10 @@ export default function StaffDashboard() {
                     });
                     const dateTimeDisplay = `${dateStr}, ${timeStr}`;
 
-                    // if occupant is seated => show seat labels
-                    const seatLabelText =
-                      res.seat_labels && res.seat_labels.length > 0
-                        ? ` (Seated at ${res.seat_labels.join(', ')})`
-                        : '';
+                    // show seat labels if occupant is seated
+                    const seatLabelText = res.seat_labels?.length
+                      ? ` (Seated at ${res.seat_labels.join(', ')})`
+                      : '';
 
                     return (
                       <tr
@@ -442,35 +444,55 @@ export default function StaffDashboard() {
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
+                          {/* Render any possible status:
+                              "booked", "reserved", "seated", "finished", "canceled", etc. */}
                           {res.status === 'booked' && (
-                            <span className="px-2 inline-flex text-xs 
-                                             leading-5 font-semibold 
-                                             rounded-full bg-orange-100 text-orange-800">
+                            <span className="px-2 inline-flex text-xs leading-5 font-semibold 
+                                           rounded-full bg-orange-100 text-orange-800">
                               booked
                             </span>
                           )}
-                          {res.status === 'canceled' && (
-                            <span className="px-2 inline-flex text-xs 
-                                             leading-5 font-semibold 
-                                             rounded-full bg-red-100 text-red-800">
-                              canceled
+                          {res.status === 'reserved' && (
+                            <span className="px-2 inline-flex text-xs leading-5 font-semibold 
+                                           rounded-full bg-yellow-100 text-yellow-800">
+                              reserved
                             </span>
                           )}
                           {res.status === 'seated' && (
-                            <span className="px-2 inline-flex text-xs 
-                                             leading-5 font-semibold 
-                                             rounded-full bg-green-100 text-green-800">
+                            <span className="px-2 inline-flex text-xs leading-5 font-semibold 
+                                           rounded-full bg-green-100 text-green-800">
                               seated
                             </span>
                           )}
-                          {/* If the status is none of the above:
-                              (e.g. "finished" or any custom) */}
-                          {!['booked', 'canceled', 'seated'].includes(
-                            res.status ?? ''
-                          ) && (
-                            <span className="px-2 inline-flex text-xs 
-                                             leading-5 font-semibold 
-                                             rounded-full bg-gray-200 text-gray-800">
+                          {res.status === 'finished' && (
+                            <span className="px-2 inline-flex text-xs leading-5 font-semibold 
+                                           rounded-full bg-gray-300 text-gray-800">
+                              finished
+                            </span>
+                          )}
+                          {res.status === 'canceled' && (
+                            <span className="px-2 inline-flex text-xs leading-5 font-semibold 
+                                           rounded-full bg-red-100 text-red-800">
+                              canceled
+                            </span>
+                          )}
+                          {res.status === 'no_show' && (
+                            <span className="px-2 inline-flex text-xs leading-5 font-semibold 
+                                           rounded-full bg-red-100 text-red-800">
+                              no_show
+                            </span>
+                          )}
+                          {/* If it's some other custom status: */}
+                          {![
+                            'booked',
+                            'reserved',
+                            'seated',
+                            'finished',
+                            'canceled',
+                            'no_show',
+                          ].includes(res.status ?? '') && (
+                            <span className="px-2 inline-flex text-xs leading-5 font-semibold 
+                                           rounded-full bg-gray-100 text-gray-800">
                               {res.status ?? 'N/A'}
                             </span>
                           )}
@@ -478,7 +500,7 @@ export default function StaffDashboard() {
                       </tr>
                     );
                   })}
-                  {filteredReservations.length === 0 && (
+                  {allReservationsForDate.length === 0 && (
                     <tr>
                       <td colSpan={5} className="px-6 py-4 text-center text-gray-500">
                         No reservations found for this date or search term.
@@ -536,10 +558,9 @@ export default function StaffDashboard() {
                       ? 'N/A'
                       : joined.toLocaleString();
 
-                    const seatLabelText =
-                      w.seat_labels && w.seat_labels.length > 0
-                        ? ` (Seated at ${w.seat_labels.join(', ')})`
-                        : '';
+                    const seatLabelText = w.seat_labels?.length
+                      ? ` (Seated at ${w.seat_labels.join(', ')})`
+                      : '';
 
                     return (
                       <tr key={w.id} className="hover:bg-gray-50">
@@ -584,8 +605,21 @@ export default function StaffDashboard() {
                               seated
                             </span>
                           )}
-                          {w.status !== 'waiting' && w.status !== 'seated' && (
+                          {w.status === 'removed' && (
                             <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-200 text-gray-800">
+                              removed
+                            </span>
+                          )}
+                          {w.status === 'no_show' && (
+                            <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">
+                              no_show
+                            </span>
+                          )}
+                          {!['waiting', 'seated', 'removed', 'no_show'].includes(
+                            w.status ?? ''
+                          ) && (
+                            <span className="px-2 inline-flex text-xs leading-5 font-semibold 
+                                           rounded-full bg-gray-100 text-gray-800">
                               {w.status || 'N/A'}
                             </span>
                           )}
@@ -610,8 +644,12 @@ export default function StaffDashboard() {
         {activeTab === 'seating' && (
           <div className="bg-white shadow rounded-md p-4 mt-4">
             <FloorManager
-              reservations={reservations}
-              waitlist={waitlist}
+              // only pass the chosen date's reservations
+              reservations={reservations.filter((r) => {
+                const dtStr = (r.start_time || '').substring(0, 10);
+                return dtStr === dateFilter; 
+              })}
+              waitlist={filteredWaitlist} // if you want to do the same date logic, you could filter as well
               onRefreshData={fetchData}
             />
           </div>
@@ -625,7 +663,7 @@ export default function StaffDashboard() {
         )}
       </div>
 
-      {/* Reservation Modal (edit or delete) */}
+      {/* Reservation Modal (edit/delete) */}
       {selectedReservation && (
         <ReservationModal
           reservation={selectedReservation}

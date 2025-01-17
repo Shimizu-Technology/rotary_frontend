@@ -7,18 +7,19 @@ import { Edit2 } from 'lucide-react';
 interface Reservation {
   id: number;
   contact_name?: string;
-  contact_phone?: string;
-  contact_email?: string;
+  start_time?: string;
   party_size?: number;
-  status?: string; // e.g. "booked", "seated", "finished", "canceled"
+  status?: string;     // "booked", "reserved", "seated", "finished", etc.
+  contact_phone?: string;
 }
 
 interface WaitlistEntry {
   id: number;
   contact_name?: string;
-  contact_phone?: string;
+  check_in_time?: string;
   party_size?: number;
-  status?: string; // e.g. "waiting", "seated", "removed"
+  status?: string;     // "waiting", "reserved" (optional), "seated", "removed"
+  contact_phone?: string;
 }
 
 interface LayoutData {
@@ -34,7 +35,8 @@ interface Seat {
   label?: string;
   position_x: number;
   position_y: number;
-  status: 'free' | 'occupied';
+  // "free" | "reserved" | "occupied"
+  status: 'free' | 'reserved' | 'occupied';
   capacity?: number;
 
   occupant_type?: 'reservation' | 'waitlist';
@@ -52,10 +54,11 @@ interface SeatSection {
   seats: Seat[];
 }
 
+/** Props from StaffDashboard */
 interface FloorManagerProps {
   reservations: Reservation[];
   waitlist: WaitlistEntry[];
-  onRefreshData: () => void;  // callback to re-fetch occupant statuses, etc.
+  onRefreshData: () => void; // callback to refresh occupant statuses in parent
 }
 
 // For wizard state
@@ -76,11 +79,11 @@ export default function FloorManager({
   const [layout, setLayout] = useState<LayoutData | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // If user clicks a seat in normal (non-wizard) mode
+  // seat detail dialog
   const [selectedSeat, setSelectedSeat] = useState<Seat | null>(null);
   const [showSeatDialog, setShowSeatDialog] = useState(false);
 
-  // Wizard state
+  // wizard for occupant assignment
   const [seatWizard, setSeatWizard] = useState<SeatWizardState>({
     occupantType: null,
     occupantId: null,
@@ -90,19 +93,17 @@ export default function FloorManager({
     selectedSeatIds: [],
   });
 
-  // For occupant picking
+  // occupant pick modal
   const [showPickOccupantModal, setShowPickOccupantModal] = useState(false);
   const [pickOccupantValue, setPickOccupantValue] = useState('');
 
   useEffect(() => {
-    loadActiveLayout();
+    loadLayout();
   }, []);
 
-  async function loadActiveLayout() {
-    console.log('[FloorManager] loadActiveLayout => /layouts/1');
+  async function loadLayout() {
     try {
       const resp = await axios.get<LayoutData>('http://localhost:3000/layouts/1');
-      console.log('[FloorManager] layout data =>', resp.data);
       setLayout(resp.data);
     } catch (err) {
       console.error('Error loading layout:', err);
@@ -111,44 +112,31 @@ export default function FloorManager({
     }
   }
 
-  // Refresh seat layout after occupant assignment or freeing seats
   async function refreshLayout() {
-    console.log('[FloorManager] refreshLayout => /layouts/1');
     try {
       const resp = await axios.get<LayoutData>('http://localhost:3000/layouts/1');
-      console.log('[FloorManager] refreshLayout => success =>', resp.data);
       setLayout(resp.data);
     } catch (err) {
-      console.error('[FloorManager] refreshLayout => error =>', err);
+      console.error('Error refreshing layout:', err);
     }
   }
 
-  // ------------------------------------------------------------
-  // handleSeatClick
-  // If wizard is active, toggle seat selection
-  // If wizard is not active, open seat info modal (for freeing seat)
-  // ------------------------------------------------------------
+  // seat clicked
   function handleSeatClick(seat: Seat) {
-    console.log('[FloorManager] handleSeatClick => seat:', seat);
-
     if (seatWizard.active) {
       toggleSelectedSeat(seat.id);
-      return;
+    } else {
+      setSelectedSeat(seat);
+      setShowSeatDialog(true);
     }
-
-    // Otherwise, old approach: show seat detail
-    setSelectedSeat(seat);
-    setShowSeatDialog(true);
   }
 
-  // Toggle seat ID in seatWizard.selectedSeatIds
   function toggleSelectedSeat(seatId: number) {
     setSeatWizard((prev) => {
-      const alreadySelected = prev.selectedSeatIds.includes(seatId);
-      const newSelected = alreadySelected
+      const isSelected = prev.selectedSeatIds.includes(seatId);
+      const newSelected = isSelected
         ? prev.selectedSeatIds.filter((id) => id !== seatId)
         : [...prev.selectedSeatIds, seatId];
-
       return { ...prev, selectedSeatIds: newSelected };
     });
   }
@@ -158,41 +146,34 @@ export default function FloorManager({
     setShowSeatDialog(false);
   }
 
-  // ------------------------------------------------------------
-  // occupant picking => occupant with status "booked" or "waiting" only
-  // ------------------------------------------------------------
+  // occupant picking => show modal
   function handlePickOccupantOpen() {
     setShowPickOccupantModal(true);
     setPickOccupantValue('');
   }
-
   function handlePickOccupantClose() {
     setShowPickOccupantModal(false);
     setPickOccupantValue('');
   }
 
+  // after occupant is chosen from dropdown
   function handleOccupantSelected() {
     if (!pickOccupantValue) return;
-
     const [typeStr, idStr] = pickOccupantValue.split('-');
     const occupantId = parseInt(idStr, 10);
     if (!occupantId) return;
 
-    // Find occupant
     let occupantPartySize = 1;
-    let occupantName = '';
+    let occupantName = 'Unknown';
 
     if (typeStr === 'reservation') {
-      // We skip reservation if status is not 'booked'
-      // But let's just find the occupant:
       const found = reservations.find((r) => r.id === occupantId);
       if (found) {
         occupantPartySize = found.party_size ?? 1;
         occupantName = found.contact_name ?? 'Unknown';
       }
     } else {
-      // typeStr === 'waitlist'
-      // We skip if status is not 'waiting'
+      // waitlist
       const found = waitlist.find((w) => w.id === occupantId);
       if (found) {
         occupantPartySize = found.party_size ?? 1;
@@ -212,9 +193,7 @@ export default function FloorManager({
     handlePickOccupantClose();
   }
 
-  // ------------------------------------------------------------
-  // Cancel wizard
-  // ------------------------------------------------------------
+  // cancel wizard
   function handleCancelWizard() {
     setSeatWizard({
       occupantType: null,
@@ -226,97 +205,91 @@ export default function FloorManager({
     });
   }
 
-  // ------------------------------------------------------------
-  // Finalize wizard => seat occupant => POST /seat_allocations/multi_create
-  // ------------------------------------------------------------
-  async function handleFinalizeWizard() {
-    if (!seatWizard.active || !seatWizard.occupantType || !seatWizard.occupantId) {
-      console.warn('Wizard is not active or occupant is missing.');
+  // occupant => "seated", seat => "occupied"
+  async function handleSeatNow() {
+    if (!seatWizard.active || !seatWizard.occupantId || seatWizard.selectedSeatIds.length === 0) {
       return;
     }
-    if (seatWizard.selectedSeatIds.length === 0) {
-      console.warn('No seats selected.');
-      return;
-    }
-
     try {
-      const payload = {
+      await axios.post('http://localhost:3000/seat_allocations/multi_create', {
         seat_allocation: {
           occupant_type: seatWizard.occupantType,
           occupant_id: seatWizard.occupantId,
           seat_ids: seatWizard.selectedSeatIds,
           allocated_at: new Date().toISOString(),
         },
-      };
-      console.log('[FloorManager] handleFinalizeWizard => POST /seat_allocations/multi_create =>', payload);
-
-      await axios.post('http://localhost:3000/seat_allocations/multi_create', payload);
-      console.log('[FloorManager] finalize wizard => success');
-
-      // Reset wizard, refresh data
+      });
       handleCancelWizard();
       await refreshLayout();
       onRefreshData();
     } catch (err) {
-      console.error('[FloorManager] finalize wizard => error =>', err);
-      alert('Failed to seat occupant. Check console.');
+      console.error('Failed to seat occupant:', err);
+      alert('Seat occupant error. Check console.');
     }
   }
 
-  // ------------------------------------------------------------
-  // "Free occupant seats" => DELETE /seat_allocations/:id
-  // This frees all seats for that occupant.
-  // ------------------------------------------------------------
+  // occupant => "reserved", seat => "reserved"
+  async function handleReserveSeats() {
+    if (!seatWizard.active || !seatWizard.occupantId || seatWizard.selectedSeatIds.length === 0) {
+      return;
+    }
+    try {
+      await axios.post('http://localhost:3000/seat_allocations/reserve', {
+        seat_allocation: {
+          occupant_type: seatWizard.occupantType,
+          occupant_id: seatWizard.occupantId,
+          seat_ids: seatWizard.selectedSeatIds,
+          allocated_at: new Date().toISOString(),
+        },
+      });
+      handleCancelWizard();
+      await refreshLayout();
+      onRefreshData();
+    } catch (err) {
+      console.error('Failed to reserve occupant seats:', err);
+      alert('Reserve occupant error. Check console.');
+    }
+  }
+
+  // occupant => "finished"/"removed", seat => "free"
   async function handleFreeSeat(allocationId: number) {
-    console.log('[FloorManager] handleFreeSeat => allocationId:', allocationId);
     try {
       await axios.delete(`http://localhost:3000/seat_allocations/${allocationId}`);
-      console.log('[FloorManager] handleFreeSeat => success');
       handleCloseSeatDialog();
       await refreshLayout();
       onRefreshData();
     } catch (err) {
-      console.error('[FloorManager] handleFreeSeat => error =>', err);
-      alert('Failed to free seat(s)—check console.');
+      console.error('Failed to free seat(s):', err);
+      alert('Free seat error. Check console.');
+    }
+  }
+
+  // occupant => "seated" from "reserved", seat => "occupied"
+  // We'll pass occupantType + occupantId to /seat_allocations/arrive
+  async function handleArriveOccupant(occupantType: string, occupantId: number) {
+    try {
+      await axios.post('http://localhost:3000/seat_allocations/arrive', {
+        occupant_type: occupantType,
+        occupant_id: occupantId,
+      });
+      // occupant => "seated", seats => "occupied"
+      handleCloseSeatDialog();
+      await refreshLayout();
+      onRefreshData();
+    } catch (err) {
+      console.error('Failed to seat occupant from reserved state:', err);
+      alert('Arrive occupant error. Check console.');
     }
   }
 
   if (loading) {
-    return (
-      <div className="p-4">
-        <h2 className="text-2xl font-bold">Floor Manager</h2>
-        <p>Loading layout data...</p>
-      </div>
-    );
+    return <div>Loading layout data...</div>;
   }
-
   if (!layout) {
-    return (
-      <div className="p-4">
-        <h2 className="text-2xl font-bold">Floor Manager</h2>
-        <p>No layout found with ID=1. Check the DB or create a layout first.</p>
-      </div>
-    );
+    return <div>No layout found (ID=1). Create or load a layout first.</div>;
   }
 
-  // ------------------------------------------------------------
-  // Filter occupant pick options:
-  // - Reservations => only those with "booked"
-  // - Waitlist => only those with "waiting"
-  // Skip occupant if status is "seated", "finished", or "removed"
-  // ( i.e. no need to seat them again)
-  // ------------------------------------------------------------
-  const seatableReservations = reservations.filter(
-    (r) => r.status === 'booked',
-  );
-  const seatableWaitlist = waitlist.filter(
-    (w) => w.status === 'waiting',
-  );
-
-  // We'll reuse these for occupant pick <select>
   const seatDiameter = 60;
-  const canvasWidth = 1200;
-  const canvasHeight = 800;
   const sections = layout.sections_data?.sections || [];
 
   return (
@@ -324,61 +297,50 @@ export default function FloorManager({
       <h2 className="text-xl font-bold mb-2">Floor Manager</h2>
 
       {/* Wizard top bar */}
-      <div className="flex items-center space-x-4 mb-4">
-        {!seatWizard.active ? (
-          <button
-            onClick={handlePickOccupantOpen}
-            className="px-4 py-2 bg-blue-600 text-white rounded"
-          >
-            Seat a New Party
-          </button>
-        ) : (
-          <>
-            <div className="text-sm text-gray-700">
-              Seating for {seatWizard.occupantName} (Party of {seatWizard.occupantPartySize})
-              — selected {seatWizard.selectedSeatIds.length} seats
-            </div>
-            <button
-              onClick={handleFinalizeWizard}
-              className="px-4 py-2 bg-green-600 text-white rounded"
-            >
-              Finalize Seating
-            </button>
-            <button
-              onClick={handleCancelWizard}
-              className="px-4 py-2 bg-gray-300 text-gray-800 rounded"
-            >
-              Cancel
-            </button>
-          </>
-        )}
-      </div>
-
-      <p className="text-sm text-gray-600 mb-4">
-        Click on a seat to {seatWizard.active ? 'toggle selection' : 'seat someone or free it'}.
-      </p>
-
-      {/* Canvas with seats */}
-      <div
-        className="border border-gray-200 rounded-lg overflow-auto"
-        style={{ width: '100%', height: '600px' }}
-      >
-        <div
-          style={{
-            width: canvasWidth,
-            height: canvasHeight,
-            position: 'relative',
-            background: '#fff',
-          }}
+      {!seatWizard.active ? (
+        <button
+          onClick={handlePickOccupantOpen}
+          className="px-4 py-2 bg-blue-600 text-white rounded"
         >
+          Seat/Reserve a Party
+        </button>
+      ) : (
+        <div className="flex items-center space-x-2">
+          <span>
+            Seating for {seatWizard.occupantName} (Party of {seatWizard.occupantPartySize}) —
+            selected {seatWizard.selectedSeatIds.length} seat(s)
+          </span>
+          <button
+            onClick={handleSeatNow}
+            className="px-4 py-2 bg-green-600 text-white rounded"
+          >
+            Seat Now
+          </button>
+          <button
+            onClick={handleReserveSeats}
+            className="px-4 py-2 bg-orange-600 text-white rounded"
+          >
+            Reserve Seats
+          </button>
+          <button
+            onClick={handleCancelWizard}
+            className="px-4 py-2 bg-gray-300 text-gray-800 rounded"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {/* Canvas (seat map) */}
+      <div
+        className="border border-gray-200 mt-4 rounded-lg overflow-auto"
+        style={{ width: '100%', height: 600 }}
+      >
+        <div style={{ position: 'relative', width: 1200, height: 800, background: '#fff' }}>
           {sections.map((section) => (
             <div
               key={section.id}
-              style={{
-                position: 'absolute',
-                left: section.offsetX,
-                top: section.offsetY,
-              }}
+              style={{ position: 'absolute', left: section.offsetX, top: section.offsetY }}
             >
               {/* Section header */}
               <div
@@ -395,36 +357,36 @@ export default function FloorManager({
                 const seatX = seat.position_x - seatDiameter / 2;
                 const seatY = seat.position_y - seatDiameter / 2;
 
-                let seatColor = seat.status === 'occupied' ? 'bg-red-500' : 'bg-green-500';
-                // If wizard is active, highlight selected seats in blue if free
+                let seatColor = 'bg-green-500'; // free
+                if (seat.status === 'occupied') seatColor = 'bg-red-500';
+                if (seat.status === 'reserved') seatColor = 'bg-yellow-400';
+
+                // If wizard is active & seat is free, highlight selection in blue
                 if (seatWizard.active && seat.status === 'free') {
                   const isSelected = seatWizard.selectedSeatIds.includes(seat.id);
-                  if (isSelected) {
-                    seatColor = 'bg-blue-500';
-                  }
+                  if (isSelected) seatColor = 'bg-blue-500';
                 }
 
                 return (
                   <div
                     key={seat.id}
+                    onClick={() => handleSeatClick(seat)}
                     style={{
                       position: 'absolute',
                       left: seatX,
                       top: seatY,
                       width: seatDiameter,
                       height: seatDiameter,
-                      zIndex: 1,
+                      zIndex: 1
                     }}
-                    onClick={() => handleSeatClick(seat)}
                     className={`
-                      flex items-center justify-center rounded-full cursor-pointer
-                      text-xs text-white text-center font-semibold
                       ${seatColor}
+                      flex items-center justify-center text-center
+                      text-white text-xs font-semibold
+                      rounded-full cursor-pointer
                     `}
                   >
-                    {seat.occupant_name
-                      ? seat.occupant_name
-                      : seat.label ?? `Seat ${seat.id}`}
+                    {seat.occupant_name || seat.label || `Seat ${seat.id}`}
                   </div>
                 );
               })}
@@ -433,44 +395,60 @@ export default function FloorManager({
         </div>
       </div>
 
-      {/* Bottom: Display reservations & waitlist lists (for reference) */}
+      {/* Bottom: Reservations & Waitlist */}
       <div className="mt-6 grid grid-cols-2 gap-4">
+        {/* Reservations */}
         <div className="bg-white p-4 rounded shadow">
           <h3 className="font-bold mb-2">Reservations</h3>
           <ul className="space-y-2">
-            {reservations.map((res) => (
-              <li key={res.id} className="bg-gray-50 p-2 rounded hover:bg-gray-100 text-sm">
-                <div className="font-semibold">{res.contact_name}</div>
-                <div className="text-xs text-gray-600">
-                  Party: {res.party_size ?? 1}, {res.contact_phone}
-                </div>
-                <div className="text-xs text-gray-500">
-                  Status: {res.status}
-                </div>
-              </li>
-            ))}
+            {reservations.map((res) => {
+              const t = res.start_time
+                ? new Date(res.start_time).toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })
+                : '';
+              return (
+                <li key={res.id} className="bg-gray-50 p-2 rounded hover:bg-gray-100 text-sm">
+                  <div className="font-semibold">{res.contact_name}</div>
+                  <div className="text-xs text-gray-600">
+                    Party: {res.party_size}, {res.contact_phone}
+                  </div>
+                  {t && <div className="text-xs text-blue-500">Time: {t}</div>}
+                  <div className="text-xs text-gray-500">Status: {res.status}</div>
+                </li>
+              );
+            })}
           </ul>
         </div>
 
+        {/* Waitlist */}
         <div className="bg-white p-4 rounded shadow">
           <h3 className="font-bold mb-2">Waitlist</h3>
           <ul className="space-y-2">
-            {waitlist.map((w) => (
-              <li key={w.id} className="bg-gray-50 p-2 rounded hover:bg-gray-100 text-sm">
-                <div className="font-semibold">{w.contact_name}</div>
-                <div className="text-xs text-gray-600">
-                  Party: {w.party_size ?? 1}, {w.contact_phone}
-                </div>
-                <div className="text-xs text-gray-500">
-                  Status: {w.status}
-                </div>
-              </li>
-            ))}
+            {waitlist.map((w) => {
+              const t = w.check_in_time
+                ? new Date(w.check_in_time).toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })
+                : '';
+              return (
+                <li key={w.id} className="bg-gray-50 p-2 rounded hover:bg-gray-100 text-sm">
+                  <div className="font-semibold">{w.contact_name}</div>
+                  <div className="text-xs text-gray-600">
+                    Party: {w.party_size}, {w.contact_phone}
+                  </div>
+                  {t && <div className="text-xs text-blue-500">Checked in: {t}</div>}
+                  <div className="text-xs text-gray-500">Status: {w.status}</div>
+                </li>
+              );
+            })}
           </ul>
         </div>
       </div>
 
-      {/* Seat dialog: Freed seat or occupant info */}
+      {/* Seat dialog (occupied/reserved/free) */}
       {showSeatDialog && selectedSeat && (
         <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
           <div className="bg-white p-4 rounded shadow w-96 relative">
@@ -487,10 +465,8 @@ export default function FloorManager({
                 <p className="text-sm text-gray-600 mb-4">
                   Occupied by{' '}
                   <strong>
-                    {selectedSeat.occupant_name
-                      ? `${selectedSeat.occupant_name} (Party of ${selectedSeat.occupant_party_size})`
-                      : 'someone'}
-                  </strong>.
+                    {selectedSeat.occupant_name || 'someone'} (Party of {selectedSeat.occupant_party_size})
+                  </strong>
                 </p>
                 {selectedSeat.allocationId && (
                   <button
@@ -501,6 +477,39 @@ export default function FloorManager({
                   </button>
                 )}
               </div>
+            ) : selectedSeat.status === 'reserved' ? (
+              <div>
+                <h3 className="font-bold text-lg mb-2">Seat Reserved</h3>
+                <p className="text-sm text-gray-600 mb-4">
+                  Reserved by{' '}
+                  <strong>
+                    {selectedSeat.occupant_name || 'someone'} (Party of {selectedSeat.occupant_party_size})
+                  </strong>
+                </p>
+                {selectedSeat.allocationId && (
+                  <div className="flex flex-col space-y-2">
+                    {/* "Seat This Party" => occupant => seated, seats => occupied */}
+                    <button
+                      onClick={() =>
+                        handleArriveOccupant(
+                          selectedSeat.occupant_type || 'reservation', // fallback
+                          selectedSeat.occupant_id!
+                        )
+                      }
+                      className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+                    >
+                      Seat This Party
+                    </button>
+
+                    <button
+                      onClick={() => handleFreeSeat(selectedSeat.allocationId!)}
+                      className="px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700"
+                    >
+                      Cancel Reservation
+                    </button>
+                  </div>
+                )}
+              </div>
             ) : (
               <div>
                 <h3 className="font-bold text-lg mb-2">Seat Is Free</h3>
@@ -508,7 +517,7 @@ export default function FloorManager({
                   This seat is currently free.
                   {seatWizard.active
                     ? ' You can toggle it in the wizard.'
-                    : ' Start the wizard to seat someone here.'}
+                    : ' Start the wizard to seat or reserve someone here.'}
                 </p>
               </div>
             )}
@@ -516,7 +525,7 @@ export default function FloorManager({
         </div>
       )}
 
-      {/* Pick Occupant Modal */}
+      {/* Pick occupant modal */}
       {showPickOccupantModal && (
         <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
           <div className="bg-white p-4 rounded shadow w-96 relative">
@@ -526,7 +535,6 @@ export default function FloorManager({
             >
               ✕
             </button>
-
             <h3 className="font-bold text-lg mb-2">Select Occupant</h3>
             <select
               className="border border-gray-300 rounded w-full p-2"
@@ -534,36 +542,37 @@ export default function FloorManager({
               onChange={(e) => setPickOccupantValue(e.target.value)}
             >
               <option value="">-- Choose occupant --</option>
-
-              <optgroup label="Reservations (booked)">
-                {seatableReservations.map((res) => (
-                  <option key={`res-${res.id}`} value={`reservation-${res.id}`}>
-                    {res.contact_name} (Party of {res.party_size})
-                  </option>
-                ))}
+              <optgroup label="Reservations (booked/reserved)">
+                {reservations
+                  .filter((r) => r.status === 'booked' || r.status === 'reserved')
+                  .map((res) => (
+                    <option key={`res-${res.id}`} value={`reservation-${res.id}`}>
+                      {res.contact_name} (Party of {res.party_size})
+                    </option>
+                  ))}
               </optgroup>
-
-              <optgroup label="Waitlist (waiting)">
-                {seatableWaitlist.map((wl) => (
-                  <option key={`wl-${wl.id}`} value={`waitlist-${wl.id}`}>
-                    {wl.contact_name} (Party of {wl.party_size})
-                  </option>
-                ))}
+              <optgroup label="Waitlist (waiting/reserved)">
+                {waitlist
+                  .filter((w) => w.status === 'waiting' || w.status === 'reserved')
+                  .map((w) => (
+                    <option key={`wl-${w.id}`} value={`waitlist-${w.id}`}>
+                      {w.contact_name} (Party of {w.party_size})
+                    </option>
+                  ))}
               </optgroup>
             </select>
-
             <div className="mt-4 flex justify-end space-x-2">
               <button
                 onClick={handlePickOccupantClose}
-                className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300"
+                className="px-4 py-2 bg-gray-200 rounded"
               >
                 Cancel
               </button>
               <button
                 onClick={handleOccupantSelected}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                className="px-4 py-2 bg-blue-600 text-white rounded"
               >
-                Start Seating
+                Start Wizard
               </button>
             </div>
           </div>
