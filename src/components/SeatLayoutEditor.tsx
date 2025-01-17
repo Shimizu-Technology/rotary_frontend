@@ -1,8 +1,13 @@
 // src/components/SeatLayoutEditor.tsx
+
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Save, Trash2, Plus, Settings, Edit2 } from 'lucide-react';
+import {
+  Save, Trash2, Plus, Settings, Edit2,
+  Minus, Maximize
+} from 'lucide-react';
 
+// Data interfaces
 interface LayoutData {
   id: number;
   name: string;
@@ -18,7 +23,7 @@ interface DBSeat {
   label?: string;
   position_x: number;
   position_y: number;
-  status: string;         // "free" or "occupied"
+  status: string;   // "free", "reserved", "occupied"
   capacity: number;
 }
 
@@ -39,10 +44,12 @@ interface SectionConfig {
   orientation: 'vertical' | 'horizontal';
 }
 
+// Predefined layout size presets
 const LAYOUT_PRESETS = {
-  large: { width: 1200, height: 800, seatScale: 0.8 },
-  medium: { width: 2000, height: 1200, seatScale: 1 },
-  small: { width: 3000, height: 1800, seatScale: 1.2 },
+  auto:    { width: 0,    height: 0,    seatScale: 1.0 },
+  small:   { width: 1200, height: 800,  seatScale: 1.0 },
+  medium:  { width: 2000, height: 1200, seatScale: 1.0 },
+  large:   { width: 3000, height: 1800, seatScale: 1.0 },
 };
 
 function clamp(value: number, min: number, max: number) {
@@ -50,21 +57,34 @@ function clamp(value: number, min: number, max: number) {
 }
 
 export default function SeatLayoutEditor() {
+  // All layouts from the database
   const [allLayouts, setAllLayouts] = useState<LayoutData[]>([]);
+  // Active layout
   const [activeLayoutId, setActiveLayoutId] = useState<number | null>(null);
-
-  const [sections, setSections] = useState<SeatSection[]>([]);
   const [layoutName, setLayoutName] = useState('New Layout');
 
-  const [layoutSize, setLayoutSize] = useState<'small'|'medium'|'large'>('medium');
-  const { width: canvasWidth, height: canvasHeight, seatScale } = LAYOUT_PRESETS[layoutSize];
+  // Layout seat sections
+  const [sections, setSections] = useState<SeatSection[]>([]);
 
+  // Layout sizing approach: "auto" or a preset
+  const [layoutSize, setLayoutSize] = useState<'auto'|'small'|'medium'|'large'>('medium');
+  // Canvas dimension & seat scaling
+  const [canvasWidth, setCanvasWidth] = useState(2000);
+  const [canvasHeight, setCanvasHeight] = useState(1200);
+  const [seatScale, setSeatScale] = useState(1.0);
+
+  // Zoom factor (applied via CSS transform)
+  const [zoom, setZoom] = useState(1.0);
+
+  // Dragging
   const [isDragging, setIsDragging] = useState(false);
   const [selectedSection, setSelectedSection] = useState<string | null>(null);
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
 
+  // Grid toggle
   const [showGrid, setShowGrid] = useState(true);
 
+  // Add/edit seat sections
   const [showSectionDialog, setShowSectionDialog] = useState(false);
   const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
   const [sectionConfig, setSectionConfig] = useState<SectionConfig>({
@@ -73,9 +93,11 @@ export default function SeatLayoutEditor() {
     type: 'counter',
     orientation: 'vertical',
   });
-  const [seatCapacity, setSeatCapacity] = useState<number>(1);
+  const [seatCapacity, setSeatCapacity] = useState(1);
 
-  // 1) Load all layouts on mount
+  // -------------------------------------------------------
+  // 1) On mount, load all layouts
+  // -------------------------------------------------------
   useEffect(() => {
     async function loadLayouts() {
       try {
@@ -86,9 +108,7 @@ export default function SeatLayoutEditor() {
           const first = resp.data[0];
           setActiveLayoutId(first.id);
           setLayoutName(first.name || 'Untitled Layout');
-          if (first.sections_data?.sections) {
-            setSections(first.sections_data.sections);
-          }
+          setSections(first.sections_data.sections || []);
         }
       } catch (err) {
         console.error('Error loading layouts:', err);
@@ -97,18 +117,69 @@ export default function SeatLayoutEditor() {
     loadLayouts();
   }, []);
 
+  // Whenever sections or layoutSize changes, adjust canvas
+  useEffect(() => {
+    if (layoutSize === 'auto') {
+      computeAutoBounds();
+    } else {
+      const preset = LAYOUT_PRESETS[layoutSize];
+      setCanvasWidth(preset.width);
+      setCanvasHeight(preset.height);
+      setSeatScale(preset.seatScale);
+    }
+  }, [layoutSize, sections]);
+
+  // -------------------------------------------------------
+  // 2) Auto-bounds if layoutSize === "auto"
+  // -------------------------------------------------------
+  function computeAutoBounds() {
+    if (!sections || sections.length === 0) {
+      setCanvasWidth(1200);
+      setCanvasHeight(800);
+      setSeatScale(1.0);
+      return;
+    }
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+
+    sections.forEach((sec) => {
+      sec.seats.forEach((seat) => {
+        const seatGlobalX = sec.offsetX + seat.position_x;
+        const seatGlobalY = sec.offsetY + seat.position_y;
+        if (seatGlobalX < minX) minX = seatGlobalX;
+        if (seatGlobalX > maxX) maxX = seatGlobalX;
+        if (seatGlobalY < minY) minY = seatGlobalY;
+        if (seatGlobalY > maxY) maxY = seatGlobalY;
+      });
+    });
+
+    const margin = 200;
+    const width  = maxX - minX + margin;
+    const height = maxY - minY + margin;
+    setCanvasWidth(Math.max(width, 800));
+    setCanvasHeight(Math.max(height, 600));
+    setSeatScale(1.0);
+  }
+
+  // -------------------------------------------------------
+  // 3) Switching layout from dropdown
+  // -------------------------------------------------------
   function handleSelectLayout(id: number) {
     setActiveLayoutId(id);
     const layout = allLayouts.find((l) => l.id === id);
     if (layout) {
-      setLayoutName(layout.name);
-      const s = layout.sections_data?.sections || [];
-      setSections(s);
+      setLayoutName(layout.name || 'Untitled Layout');
+      setSections(layout.sections_data.sections || []);
     }
   }
 
-  // 2) Drag & drop
+  // -------------------------------------------------------
+  // 4) Drag & drop seat sections
+  // -------------------------------------------------------
   function handleDragStart(e: React.MouseEvent, sectionId: string) {
+    e.stopPropagation();
     setIsDragging(true);
     setSelectedSection(sectionId);
     setDragStart({ x: e.clientX, y: e.clientY });
@@ -116,26 +187,17 @@ export default function SeatLayoutEditor() {
 
   function handleDragMove(e: React.MouseEvent) {
     if (!isDragging || !dragStart || !selectedSection) return;
+
     const dx = e.clientX - dragStart.x;
     const dy = e.clientY - dragStart.y;
 
     setSections((prev) =>
       prev.map((sec) => {
         if (sec.id !== selectedSection) return sec;
-
-        const newOffsetX = sec.offsetX + dx;
-        const newOffsetY = sec.offsetY + dy;
-
-        const { minX, maxX, minY, maxY } = getSectionBounds(sec, seatScale);
-        const minAllowedX = -minX;
-        const maxAllowedX = canvasWidth - maxX;
-        const minAllowedY = -minY;
-        const maxAllowedY = canvasHeight - maxY;
-
         return {
           ...sec,
-          offsetX: clamp(newOffsetX, minAllowedX, maxAllowedX),
-          offsetY: clamp(newOffsetY, minAllowedY, maxAllowedY),
+          offsetX: sec.offsetX + dx,
+          offsetY: sec.offsetY + dy,
         };
       })
     );
@@ -148,33 +210,9 @@ export default function SeatLayoutEditor() {
     setDragStart(null);
   }
 
-  function getSectionBounds(section: SeatSection, scale: number) {
-    if (!section.seats || section.seats.length === 0) {
-      return { minX: 0, maxX: 0, minY: 0, maxY: 0 };
-    }
-    let minX = Infinity;
-    let maxX = -Infinity;
-    let minY = Infinity;
-    let maxY = -Infinity;
-
-    section.seats.forEach((seat) => {
-      const seatX = seat.position_x * scale;
-      const seatY = seat.position_y * scale;
-      if (seatX < minX) minX = seatX;
-      if (seatX > maxX) maxX = seatX;
-      if (seatY < minY) minY = seatY;
-      if (seatY > maxY) maxY = seatY;
-    });
-
-    const seatRadius = 32 * scale;  // bigger seat circle
-    minX -= seatRadius;
-    maxX += seatRadius;
-    minY -= seatRadius;
-    maxY += seatRadius;
-    return { minX, maxX, minY, maxY };
-  }
-
-  // 3) Add/Edit a section
+  // -------------------------------------------------------
+  // 5) Creating/Editing seat sections
+  // -------------------------------------------------------
   function handleAddSection() {
     setEditingSectionId(null);
     setSectionConfig({
@@ -207,7 +245,7 @@ export default function SeatLayoutEditor() {
 
   async function createOrEditSection() {
     if (editingSectionId) {
-      // just rename/re-type existing seats
+      // rename or re‐type existing seats
       setSections((prev) =>
         prev.map((sec) => {
           if (sec.id !== editingSectionId) return sec;
@@ -220,12 +258,11 @@ export default function SeatLayoutEditor() {
         })
       );
     } else {
-      // brand new => create seats in DB => store IDs
+      // brand new seats in DB
       const newSectionId = `section-${sections.length + 1}`;
       const newSeats: DBSeat[] = [];
-
       for (let i = 0; i < sectionConfig.seatCount; i++) {
-        const seatPayload = await createSeatOnServer({
+        const seatData = await createSeatOnServer({
           seat_section_id: 1, // or dynamic
           label: `Seat #${i + 1}`,
           index: i,
@@ -233,10 +270,10 @@ export default function SeatLayoutEditor() {
           type: sectionConfig.type,
           capacity: seatCapacity,
         });
-        newSeats.push(seatPayload);
+        newSeats.push(seatData);
       }
 
-      const newSection: SeatSection = {
+      const newSec: SeatSection = {
         id: newSectionId,
         name: sectionConfig.name,
         type: sectionConfig.type,
@@ -245,7 +282,7 @@ export default function SeatLayoutEditor() {
         offsetY: 100,
         seats: newSeats,
       };
-      setSections((prev) => [...prev, newSection]);
+      setSections((prev) => [...prev, newSec]);
     }
 
     setShowSectionDialog(false);
@@ -255,6 +292,7 @@ export default function SeatLayoutEditor() {
     setSections((prev) => prev.filter((s) => s.id !== sectionId));
   }
 
+  // create seats on server
   interface CreateSeatParams {
     seat_section_id: number;
     label: string;
@@ -271,7 +309,7 @@ export default function SeatLayoutEditor() {
     type,
     capacity,
   }: CreateSeatParams): Promise<DBSeat> {
-    const spacing = 70; // a bit more spacing
+    const spacing = 70;
     let position_x = 0;
     let position_y = 0;
 
@@ -282,7 +320,7 @@ export default function SeatLayoutEditor() {
         position_x = index * spacing;
       }
     } else {
-      // table => 2D arrangement
+      // "table"
       if (orientation === 'vertical') {
         const cols = 2;
         const colIndex = index % cols;
@@ -290,6 +328,7 @@ export default function SeatLayoutEditor() {
         position_x = colIndex * spacing;
         position_y = rowIndex * spacing;
       } else {
+        // horizontal
         const rows = 2;
         const rowIndex = index % rows;
         const colIndex = Math.floor(index / rows);
@@ -311,7 +350,9 @@ export default function SeatLayoutEditor() {
     return resp.data;
   }
 
-  // 4) Save layout to DB
+  // -------------------------------------------------------
+  // 6) Saving layout
+  // -------------------------------------------------------
   async function handleSaveLayout() {
     try {
       const payload = {
@@ -338,9 +379,22 @@ export default function SeatLayoutEditor() {
     }
   }
 
+  // -------------------------------------------------------
+  // 7) Zoom controls
+  // -------------------------------------------------------
+  function handleZoomIn() {
+    setZoom((prev) => Math.min(prev + 0.25, 5.0));
+  }
+  function handleZoomOut() {
+    setZoom((prev) => Math.max(prev - 0.25, 0.2));
+  }
+  function handleZoomReset() {
+    setZoom(1.0);
+  }
+
   return (
-    <div className="relative">
-      {/* Top Controls */}
+    <div className="relative px-4 pb-6">
+      {/* ----- Top Controls ----- */}
       <div className="mb-4 flex items-center space-x-4">
         {/* Layout dropdown */}
         <div>
@@ -359,7 +413,7 @@ export default function SeatLayoutEditor() {
           </select>
         </div>
 
-        {/* Layout name */}
+        {/* Layout name input */}
         <input
           type="text"
           value={layoutName}
@@ -368,17 +422,18 @@ export default function SeatLayoutEditor() {
           placeholder="Layout Name"
         />
 
-        {/* Layout size */}
+        {/* Layout size => auto or preset */}
         <div className="flex items-center space-x-2">
           <label className="text-sm font-medium text-gray-700">Layout Size:</label>
           <select
             value={layoutSize}
-            onChange={(e) => setLayoutSize(e.target.value as 'small'|'medium'|'large')}
+            onChange={(e) => setLayoutSize(e.target.value as 'auto'|'small'|'medium'|'large')}
             className="px-2 py-1 border border-gray-300 rounded"
           >
-            <option value="small">Small</option>
-            <option value="medium">Medium</option>
-            <option value="large">Large</option>
+            <option value="auto">Auto (by seats)</option>
+            <option value="small">Small (1200×800)</option>
+            <option value="medium">Medium (2000×1200)</option>
+            <option value="large">Large (3000×1800)</option>
           </select>
         </div>
 
@@ -393,6 +448,32 @@ export default function SeatLayoutEditor() {
           Grid
         </button>
 
+        {/* Zoom UI */}
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={handleZoomOut}
+            className="p-1 bg-gray-100 rounded hover:bg-gray-200"
+            title="Zoom Out"
+          >
+            <Minus className="w-4 h-4" />
+          </button>
+          <span className="w-12 text-center">{(zoom * 100).toFixed(0)}%</span>
+          <button
+            onClick={handleZoomIn}
+            className="p-1 bg-gray-100 rounded hover:bg-gray-200"
+            title="Zoom In"
+          >
+            <Plus className="w-4 h-4" />
+          </button>
+          <button
+            onClick={handleZoomReset}
+            className="p-1 bg-gray-100 rounded hover:bg-gray-200"
+            title="Reset Zoom"
+          >
+            <Maximize className="w-4 h-4" />
+          </button>
+        </div>
+
         {/* Save layout */}
         <button
           onClick={handleSaveLayout}
@@ -403,14 +484,15 @@ export default function SeatLayoutEditor() {
         </button>
       </div>
 
-      {/* Canvas */}
+      {/* ----- Scrollable container, bigger height ----- */}
       <div
         className="border border-gray-200 rounded-lg overflow-auto"
-        style={{ width: '100%', height: '600px' }}
+        style={{ width: '100%', height: '80vh', minHeight: '600px' }}
         onMouseMove={handleDragMove}
         onMouseUp={handleDragEnd}
         onMouseLeave={handleDragEnd}
       >
+        {/* Workspace with transform scale */}
         <div
           style={{
             width: canvasWidth,
@@ -420,6 +502,8 @@ export default function SeatLayoutEditor() {
               ? 'radial-gradient(circle, #cbd5e1 1px, transparent 1px)'
               : 'none',
             backgroundSize: '20px 20px',
+            transform: `scale(${zoom})`,
+            transformOrigin: 'top left',
           }}
         >
           {sections.map((section) => (
@@ -431,10 +515,7 @@ export default function SeatLayoutEditor() {
                 top: section.offsetY,
                 cursor: 'move',
               }}
-              onMouseDown={(e) => {
-                e.stopPropagation();
-                handleDragStart(e, section.id);
-              }}
+              onMouseDown={(e) => handleDragStart(e, section.id)}
             >
               {/* Section header */}
               <div
@@ -467,12 +548,14 @@ export default function SeatLayoutEditor() {
               {/* Seats */}
               <div style={{ position: 'relative' }}>
                 {section.seats.map((seat) => {
-                  // bigger seats
                   const seatDiameter = 64 * seatScale;
                   const seatX = seat.position_x * seatScale;
                   const seatY = seat.position_y * seatScale;
 
-                  const seatColor = seat.status === 'occupied' ? 'bg-red-500' : 'bg-green-500';
+                  let seatColor = 'bg-green-500';
+                  if (seat.status === 'occupied') seatColor = 'bg-red-500';
+                  if (seat.status === 'reserved') seatColor = 'bg-yellow-400';
+
                   return (
                     <div
                       key={seat.id}
@@ -486,11 +569,14 @@ export default function SeatLayoutEditor() {
                       }}
                       className={`
                         rounded-full flex items-center justify-center cursor-pointer
-                        shadow-md transition-colors duration-200
-                        text-white font-semibold text-sm text-center leading-tight
+                        shadow-md text-white font-semibold text-sm
                         hover:opacity-90
                         ${seatColor}
                       `}
+                      onClick={() => {
+                        console.log("Clicked seat:", seat.id, seat.label);
+                        // Possibly open seat detail or do something else
+                      }}
                     >
                       {seat.label ?? `Seat ${seat.id}`}
                     </div>
@@ -502,7 +588,7 @@ export default function SeatLayoutEditor() {
         </div>
       </div>
 
-      {/* Add Section Button */}
+      {/* Add Section button */}
       <button
         onClick={handleAddSection}
         className="flex items-center px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 shadow-lg mt-4"
@@ -511,7 +597,7 @@ export default function SeatLayoutEditor() {
         Add Section
       </button>
 
-      {/* Section Dialog */}
+      {/* Section creation/editing dialog */}
       {showSectionDialog && (
         <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
           <div className="bg-white rounded p-6 w-96 relative">
