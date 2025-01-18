@@ -48,9 +48,22 @@ interface WaitlistEntry {
 export default function StaffDashboard() {
   const { user } = useAuth();
 
+  /**
+   * Tab management. We have 4 tabs:
+   *   - 'reservations'
+   *   - 'waitlist'
+   *   - 'seating'
+   *   - 'layout'
+   */
   const [activeTab, setActiveTab] = useState<
     'reservations' | 'waitlist' | 'seating' | 'layout'
   >('reservations');
+
+  // Provide a helper function for child components to switch tabs
+  function handleTabChange(tab: string) {
+    // You can restrict this to valid tab keys if you like
+    setActiveTab(tab as any);
+  }
 
   // Data
   const [reservations, setReservations] = useState<Reservation[]>([]);
@@ -159,9 +172,7 @@ export default function StaffDashboard() {
   }
 
   // -------------------------------------------
-  // Reservations tab: show all reservations
-  // for the chosen date (dateFilter), ignoring status
-  // plus searchTerm.
+  // Reservations tab: filter by date & search
   // -------------------------------------------
   const allReservationsForDate = reservations.filter((r) => {
     // Match date
@@ -181,7 +192,7 @@ export default function StaffDashboard() {
     return matchesDate && matchesSearch;
   });
 
-  // Waitlist tab: optionally filter or show all
+  // Waitlist tab: filter by searchTerm
   const filteredWaitlist = waitlist.filter((w) => {
     const wName = w.contact_name?.toLowerCase() ?? '';
     const wPhone = w.contact_phone ?? '';
@@ -644,13 +655,14 @@ export default function StaffDashboard() {
         {activeTab === 'seating' && (
           <div className="bg-white shadow rounded-md p-4 mt-4">
             <FloorManager
-              // only pass the chosen date's reservations
+              /* We can filter reservations by date if you want only today's ones in 'Seating'. */
               reservations={reservations.filter((r) => {
                 const dtStr = (r.start_time || '').substring(0, 10);
                 return dtStr === dateFilter; 
               })}
-              waitlist={filteredWaitlist} // if you want to do the same date logic, you could filter as well
+              waitlist={filteredWaitlist}
               onRefreshData={fetchData}
+              onTabChange={handleTabChange} // <-- pass the function to FloorManager
             />
           </div>
         )}
