@@ -1,3 +1,5 @@
+// src/components/SeatLayoutEditor.tsx
+
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import {
@@ -7,36 +9,23 @@ import {
 
 /** ---------- Data Interfaces ---------- **/
 
+// Minimal structure from /layouts. We only store minimal geometry in sections_data.
 interface LayoutData {
   id: number;
   name: string;
   restaurant_id: number;
   sections_data: {
+    // Optionally store seat section offsets/orientation, but NOT seat arrays
     sections: SeatSection[];
   };
 }
 
-/** 
- * For seats, use an optional `id` if it's brand-new (not persisted yet).
- * If loaded from DB, `id` is set. 
- */
-interface DBSeat {
-  id?: number; 
-  seat_section_id?: number;
-  label?: string;
-  position_x: number;
-  position_y: number;
-  status: string; // "free", "reserved", "occupied"
-  capacity: number;
-}
-
-/** 
- * For seat sections, we keep a local `id` (string) for front-end tracking, 
- * and an optional `dbId` if it’s loaded from an existing record (seat_sections.id).
- */
+// Each seat section’s geometry. We store local seat arrays for UI preview.
+// The server uses these to create/update real DB seats (via LayoutsController#update).
 interface SeatSection {
-  id: string;        // local identifier, e.g. "section-1"
-  dbId?: number;     // actual seat_sections.id if loaded
+  // 'id' is a string so we can handle either numeric IDs from DB or "section-1" for new.
+  id: string;       
+  dbId?: number;    // Actual seat_section.id if known from DB
   name: string;
   type: 'counter' | 'table';
   orientation: 'vertical' | 'horizontal';
@@ -45,6 +34,19 @@ interface SeatSection {
   seats: DBSeat[];
 }
 
+// Minimal seat interface for local in-memory usage. 
+// Real seats get created/updated in the DB via the Rails controller.
+interface DBSeat {
+  // 'id' can be numeric if from DB, or omitted if newly created client-side.
+  id?: number;          
+  label?: string;
+  position_x: number;
+  position_y: number;
+  status: string;       // "free", "reserved", or "occupied"
+  capacity: number;
+}
+
+// For our "Add/Edit Section" dialog
 interface SectionConfig {
   name: string;
   seatCount: number;
@@ -52,7 +54,7 @@ interface SectionConfig {
   orientation: 'vertical' | 'horizontal';
 }
 
-/** “auto” or preset canvas sizes. */
+/** Predefined layout sizes or "auto" bounding. */
 const LAYOUT_PRESETS = {
   auto:    { width: 0,    height: 0,    seatScale: 1.0 },
   small:   { width: 1200, height: 800,  seatScale: 1.0 },
@@ -60,69 +62,52 @@ const LAYOUT_PRESETS = {
   large:   { width: 3000, height: 1800, seatScale: 1.0 },
 };
 
-/** Extract numeric portion of "Seat #12" => 12. Returns 0 if none found. */
+/** Extract numeric portion of e.g. "Seat #12" => 12. */
 function seatLabelToNumber(label?: string): number {
   if (!label) return 0;
   const match = label.match(/#(\d+)/);
-  if (!match) return 0;
-  return parseInt(match[1], 10) || 0;
+  return match ? parseInt(match[1], 10) : 0;
 }
 
-/**
- * Determine spacing between the last two seats in seatsAsc,
- * else fallback to defaultSpacing if fewer than 2 seats exist.
- */
+/** Measure spacing between two seats to auto-position new ones. */
 function measureExistingGap(
   seatsAsc: DBSeat[],
   orientation: 'vertical' | 'horizontal',
   defaultSpacing = 70
 ): number {
-  if (seatsAsc.length < 2) {
-    return defaultSpacing;
-  }
+  if (seatsAsc.length < 2) return defaultSpacing;
   const secondLast = seatsAsc[seatsAsc.length - 2];
   const last       = seatsAsc[seatsAsc.length - 1];
-
   if (orientation === 'vertical') {
-    const diff = last.position_y - secondLast.position_y;
-    return diff <= 5 ? defaultSpacing : diff;
+    return Math.max(defaultSpacing, last.position_y - secondLast.position_y);
   } else {
-    const diff = last.position_x - secondLast.position_x;
-    return diff <= 5 ? defaultSpacing : diff;
+    return Math.max(defaultSpacing, last.position_x - secondLast.position_x);
   }
 }
 
-/** ---------- Main Component ---------- **/
-
 export default function SeatLayoutEditor() {
-  // All layouts from DB (if any), for the dropdown
+  // ---------- Layout list & active selection ----------
   const [allLayouts, setAllLayouts] = useState<LayoutData[]>([]);
-
-  // Currently active layout
   const [activeLayoutId, setActiveLayoutId] = useState<number | null>(null);
   const [layoutName, setLayoutName] = useState('New Layout');
 
-  // In-memory seat sections. Not saved until user hits "Save Layout".
+  // ---------- In-memory seat sections (with seat arrays) ----------
   const [sections, setSections] = useState<SeatSection[]>([]);
 
-  // Layout/canvas sizing
+  // ---------- Canvas sizing & zoom ----------
   const [layoutSize, setLayoutSize] = useState<'auto'|'small'|'medium'|'large'>('medium');
   const [canvasWidth, setCanvasWidth]   = useState(2000);
   const [canvasHeight, setCanvasHeight] = useState(1200);
   const [seatScale, setSeatScale]       = useState(1.0);
+  const [zoom, setZoom]                 = useState(1.0);
+  const [showGrid, setShowGrid]         = useState(true);
 
-  // Zoom
-  const [zoom, setZoom] = useState(1.0);
-
-  // Dragging seat sections
-  const [isDragging, setIsDragging] = useState(false);
+  // ---------- Dragging seat sections ----------
+  const [isDragging, setIsDragging]           = useState(false);
   const [selectedSection, setSelectedSection] = useState<string | null>(null);
-  const [dragStart, setDragStart]   = useState<{ x: number; y: number } | null>(null);
+  const [dragStart, setDragStart]             = useState<{ x: number; y: number } | null>(null);
 
-  // Show/hide grid
-  const [showGrid, setShowGrid] = useState(true);
-
-  // Section add/edit dialog
+  // ---------- Add/Edit Section dialog ----------
   const [showSectionDialog, setShowSectionDialog] = useState(false);
   const [editingSectionId, setEditingSectionId]   = useState<string | null>(null);
   const [sectionConfig, setSectionConfig] = useState<SectionConfig>({
@@ -133,16 +118,14 @@ export default function SeatLayoutEditor() {
   });
   const [seatCapacity, setSeatCapacity] = useState(1);
 
-  /** ---------------------------------------
-   *  1) On mount, load existing layouts 
-   * --------------------------------------- */
+  /** Load existing layouts on mount. */
   useEffect(() => {
     async function loadLayouts() {
       try {
         const resp = await axios.get<LayoutData[]>('http://localhost:3000/layouts');
         setAllLayouts(resp.data);
 
-        // Optionally select the first layout if any exist
+        // If desired: automatically select the first layout
         if (resp.data.length > 0) {
           const first = resp.data[0];
           setActiveLayoutId(first.id);
@@ -156,7 +139,7 @@ export default function SeatLayoutEditor() {
     loadLayouts();
   }, []);
 
-  /** If layoutSize=auto or sections change, recalc bounding box. */
+  /** Recompute bounding box if layoutSize or sections changes. */
   useEffect(() => {
     if (layoutSize === 'auto') {
       computeAutoBounds();
@@ -168,7 +151,6 @@ export default function SeatLayoutEditor() {
     }
   }, [layoutSize, sections]);
 
-  /** Recompute bounding box from all seats */
   function computeAutoBounds() {
     if (sections.length === 0) {
       setCanvasWidth(1200);
@@ -176,9 +158,11 @@ export default function SeatLayoutEditor() {
       setSeatScale(1.0);
       return;
     }
+
     let minX = Infinity, maxX = -Infinity;
     let minY = Infinity, maxY = -Infinity;
 
+    // If you store seats locally for the UI:
     sections.forEach((sec) => {
       sec.seats.forEach((seat) => {
         const globalX = sec.offsetX + seat.position_x;
@@ -198,29 +182,25 @@ export default function SeatLayoutEditor() {
     setSeatScale(1.0);
   }
 
-  /** 
-   * If user picks "(New Layout)" => clear everything. 
-   * Else load an existing layout from allLayouts.
-   */
+  /** Handle picking a different layout from the dropdown. */
   function handleSelectLayout(id: number) {
     if (id === 0) {
-      // (New Layout) => fresh blank
+      // Creating a new layout from scratch
       setActiveLayoutId(null);
       setLayoutName('New Layout');
       setSections([]);
       return;
     }
     setActiveLayoutId(id);
-    const layout = allLayouts.find((l) => l.id === id);
-    if (layout) {
-      setLayoutName(layout.name || 'Untitled Layout');
-      setSections(layout.sections_data.sections || []);
+
+    const found = allLayouts.find((l) => l.id === id);
+    if (found) {
+      setLayoutName(found.name || 'Untitled Layout');
+      setSections(found.sections_data.sections || []);
     }
   }
 
-  /** ---------------------------------------
-   *  2) Drag/Drop seat sections
-   * --------------------------------------- */
+  /** Drag seat sections around the canvas. */
   function handleDragStart(e: React.MouseEvent, sectionId: string) {
     e.stopPropagation();
     setIsDragging(true);
@@ -252,9 +232,7 @@ export default function SeatLayoutEditor() {
     setDragStart(null);
   }
 
-  /** ---------------------------------------
-   *  3) Add/Edit seat sections locally
-   * --------------------------------------- */
+  /** ------------- Add/Edit seat sections in local memory ------------- */
   function handleAddSection() {
     setEditingSectionId(null);
     setSectionConfig({
@@ -270,6 +248,7 @@ export default function SeatLayoutEditor() {
   function handleEditSectionClick(sectionId: string) {
     const sec = sections.find((s) => s.id === sectionId);
     if (!sec) return;
+
     setEditingSectionId(sectionId);
     setSectionConfig({
       name: sec.name,
@@ -277,7 +256,6 @@ export default function SeatLayoutEditor() {
       type: sec.type,
       orientation: sec.orientation,
     });
-    // If seats exist, copy the capacity from the first seat
     if (sec.seats.length > 0) {
       setSeatCapacity(sec.seats[0].capacity);
     } else {
@@ -286,13 +264,14 @@ export default function SeatLayoutEditor() {
     setShowSectionDialog(true);
   }
 
-  /**
-   * Create/edit a section in local state only. 
-   * No DB calls until user hits "Save Layout."
-   */
+  function deleteSection(sectionId: string) {
+    setSections((prev) => prev.filter((s) => s.id !== sectionId));
+  }
+
+  /** Create or edit a section in memory only. Real DB update happens on "Save Layout." */
   function createOrEditSection() {
     if (editingSectionId) {
-      // 1) Updating existing
+      // updating existing
       const oldSection = sections.find((s) => s.id === editingSectionId);
       if (!oldSection) {
         setShowSectionDialog(false);
@@ -301,7 +280,7 @@ export default function SeatLayoutEditor() {
       const oldCount = oldSection.seats.length;
       const newCount = sectionConfig.seatCount;
 
-      // Update name/type/orientation
+      // Update the section’s name/type/orientation
       setSections((prev) =>
         prev.map((sec) => {
           if (sec.id !== editingSectionId) return sec;
@@ -314,10 +293,9 @@ export default function SeatLayoutEditor() {
         })
       );
 
-      // If seatCount increased => add new seats
+      // If seatCount increased => add seats
       if (newCount > oldCount) {
-        const seatsToAdd = newCount - oldCount;
-        const seatsAsc   = [...oldSection.seats].sort(
+        const seatsAsc = [...oldSection.seats].sort(
           (a, b) => seatLabelToNumber(a.label) - seatLabelToNumber(b.label)
         );
         let maxLabelNum = 0;
@@ -330,27 +308,26 @@ export default function SeatLayoutEditor() {
         }
         const gap = measureExistingGap(seatsAsc, sectionConfig.orientation, 70);
 
+        const seatsToAdd = newCount - oldCount;
         const newSeats: DBSeat[] = [];
         for (let i = 1; i <= seatsToAdd; i++) {
           const newLabelNum = maxLabelNum + i;
-          let overrideX = anchorX;
-          let overrideY = anchorY;
-
+          let x = anchorX;
+          let y = anchorY;
           if (sectionConfig.orientation === 'vertical') {
-            overrideY += gap * i;
+            y += gap * i;
           } else {
-            overrideX += gap * i;
+            x += gap * i;
           }
-
           newSeats.push({
             label: `Seat #${newLabelNum}`,
-            position_x: overrideX,
-            position_y: overrideY,
+            position_x: x,
+            position_y: y,
             status: 'free',
             capacity: seatCapacity,
           });
         }
-        // Merge them
+
         setSections((prev) =>
           prev.map((sec) => {
             if (sec.id !== editingSectionId) return sec;
@@ -358,7 +335,7 @@ export default function SeatLayoutEditor() {
           })
         );
       } 
-      // If seatCount decreased => remove seats from top
+      // If seatCount decreased => remove seats from the "top"
       else if (newCount < oldCount) {
         const seatsToRemove = oldCount - newCount;
         const seatsDesc = [...oldSection.seats].sort(
@@ -374,18 +351,16 @@ export default function SeatLayoutEditor() {
           })
         );
       }
-
     } else {
-      // 2) brand new section
+      // brand new section
       const newSectionId = `section-${sections.length + 1}`;
       const newSeats: DBSeat[] = [];
 
-      // Basic approach: seatCount seats
       for (let i = 0; i < sectionConfig.seatCount; i++) {
-        // simple spacing
         const spacing = 70;
-        let posX = 0;
-        let posY = 0;
+        let posX = 0, posY = 0;
+
+        // If it's a "counter" type, seats in a line
         if (sectionConfig.type === 'counter') {
           if (sectionConfig.orientation === 'vertical') {
             posY = i * spacing;
@@ -393,17 +368,17 @@ export default function SeatLayoutEditor() {
             posX = i * spacing;
           }
         } else {
-          // "table" => 2D arrangement
+          // "table" => example 2D arrangement
           if (sectionConfig.orientation === 'vertical') {
-            const cols = 2;
-            const colIndex = i % cols;
-            const rowIndex = Math.floor(i / cols);
+            // 2 columns
+            const colIndex = i % 2;
+            const rowIndex = Math.floor(i / 2);
             posX = colIndex * spacing;
             posY = rowIndex * spacing;
           } else {
-            const rows = 2;
-            const rowIndex = i % rows;
-            const colIndex = Math.floor(i / rows);
+            // 2 rows
+            const rowIndex = i % 2;
+            const colIndex = Math.floor(i / 2);
             posX = colIndex * spacing;
             posY = rowIndex * spacing;
           }
@@ -427,43 +402,49 @@ export default function SeatLayoutEditor() {
         offsetY: 100,
         seats: newSeats,
       };
-
       setSections((prev) => [...prev, newSection]);
     }
 
     setShowSectionDialog(false);
   }
 
-  /** Possibly remove entire section from local state. */
-  function deleteSection(sectionId: string) {
-    setSections((prev) => prev.filter((s) => s.id !== sectionId));
-  }
-
-  /** ---------------------------------------
-   *  4) Save entire layout to server
-   * --------------------------------------- */
+  /**
+   * Save layout => We send the entire sections array in `sections_data`.
+   * Your Rails LayoutsController#update will parse and create/update seat_sections & seats.
+   */
   async function handleSaveLayout() {
     try {
       const payload = {
         name: layoutName,
-        sections_data: { sections },
+        sections_data: {
+          // We are sending the full seat arrays here
+          // so the server can create/update seats in the DB.
+          sections,
+        },
       };
+
       if (activeLayoutId) {
-        // update existing
-        await axios.patch(`http://localhost:3000/layouts/${activeLayoutId}`, {
-          layout: payload,
-        });
+        // PATCH existing layout
+        const resp = await axios.patch(
+          `http://localhost:3000/layouts/${activeLayoutId}`,
+          { layout: payload }
+        );
         alert('Layout updated successfully!');
+        const updated = resp.data as LayoutData;
+        // Update local state in case server modifies data
+        setLayoutName(updated.name);
+        setSections(updated.sections_data.sections || []);
       } else {
-        // create new
+        // POST new layout
         const resp = await axios.post('http://localhost:3000/layouts', {
           layout: payload,
         });
-        alert('Layout created successfully!');
+        alert('Layout created!');
         const newLayout = resp.data as LayoutData;
-        // store in allLayouts
         setAllLayouts((prev) => [...prev, newLayout]);
         setActiveLayoutId(newLayout.id);
+        setLayoutName(newLayout.name);
+        setSections(newLayout.sections_data.sections || []);
       }
     } catch (err) {
       console.error('Error saving layout:', err);
@@ -471,9 +452,7 @@ export default function SeatLayoutEditor() {
     }
   }
 
-  /** ---------------------------------------
-   *  5) Zoom controls
-   * --------------------------------------- */
+  // ---------- Zoom controls ----------
   function handleZoomIn() {
     setZoom((prev) => Math.min(prev + 0.25, 5.0));
   }
@@ -484,12 +463,10 @@ export default function SeatLayoutEditor() {
     setZoom(1.0);
   }
 
-  /** ---------- Render ---------- **/
   return (
     <div className="relative px-4 pb-6">
       {/* ---------- Top Controls ---------- */}
       <div className="mb-4 flex items-center space-x-4">
-        
         {/* Layout dropdown */}
         <div>
           <label className="mr-2 text-sm font-semibold">Choose Layout:</label>
@@ -499,15 +476,15 @@ export default function SeatLayoutEditor() {
             className="border border-gray-300 rounded p-1"
           >
             <option value={0}>(New Layout)</option>
-            {allLayouts.map((layout) => (
-              <option key={layout.id} value={layout.id}>
-                {layout.name}
+            {allLayouts.map((lyt) => (
+              <option key={lyt.id} value={lyt.id}>
+                {lyt.name}
               </option>
             ))}
           </select>
         </div>
 
-        {/* Layout name */}
+        {/* Layout name input */}
         <input
           type="text"
           value={layoutName}
@@ -518,12 +495,10 @@ export default function SeatLayoutEditor() {
 
         {/* Layout size */}
         <div className="flex items-center space-x-2">
-          <label className="text-sm font-medium text-gray-700">Layout Size:</label>
+          <label className="text-sm font-medium">Layout Size:</label>
           <select
             value={layoutSize}
-            onChange={(e) =>
-              setLayoutSize(e.target.value as 'auto'|'small'|'medium'|'large')
-            }
+            onChange={(e) => setLayoutSize(e.target.value as 'auto'|'small'|'medium'|'large')}
             className="px-2 py-1 border border-gray-300 rounded"
           >
             <option value="auto">Auto (by seats)</option>
@@ -544,25 +519,25 @@ export default function SeatLayoutEditor() {
           Grid
         </button>
 
-        {/* Zoom */}
+        {/* Zoom controls */}
         <div className="flex items-center space-x-2">
-          <button
-            onClick={handleZoomOut}
+          <button 
+            onClick={handleZoomOut} 
             className="p-1 bg-gray-100 rounded hover:bg-gray-200"
             title="Zoom Out"
           >
             <Minus className="w-4 h-4" />
           </button>
           <span className="w-12 text-center">{(zoom * 100).toFixed(0)}%</span>
-          <button
-            onClick={handleZoomIn}
+          <button 
+            onClick={handleZoomIn} 
             className="p-1 bg-gray-100 rounded hover:bg-gray-200"
             title="Zoom In"
           >
             <LucidePlus className="w-4 h-4" />
           </button>
-          <button
-            onClick={handleZoomReset}
+          <button 
+            onClick={handleZoomReset} 
             className="p-1 bg-gray-100 rounded hover:bg-gray-200"
             title="Reset Zoom"
           >
@@ -580,7 +555,7 @@ export default function SeatLayoutEditor() {
         </button>
       </div>
 
-      {/* ---------- Scrollable container ---------- */}
+      {/* ---------- Scrollable container (canvas) ---------- */}
       <div
         className="border border-gray-200 rounded-lg overflow-auto"
         style={{ width: '100%', height: '80vh', minHeight: '600px' }}
@@ -617,7 +592,10 @@ export default function SeatLayoutEditor() {
                 className="mb-1 flex items-center justify-between bg-white/80 rounded px-2 py-1 shadow"
                 style={{ position: 'relative', zIndex: 2, cursor: 'default' }}
               >
-                <span className="font-medium text-sm text-gray-700">{section.name}</span>
+                <span className="font-medium text-sm text-gray-700">
+                  {section.name}
+                  {section.dbId ? ` (ID ${section.dbId})` : ''}
+                </span>
                 <div className="flex items-center space-x-1">
                   <button
                     onClick={(ev) => {
@@ -640,20 +618,25 @@ export default function SeatLayoutEditor() {
                 </div>
               </div>
 
-              {/* Seats */}
+              {/* Local seat array for UI only; real seats => created/updated in LayoutsController */}
               <div style={{ position: 'relative' }}>
                 {section.seats.map((seat, idx) => {
                   const seatDiameter = 64 * seatScale;
                   const seatX = seat.position_x * seatScale;
                   const seatY = seat.position_y * seatScale;
 
-                  let seatColor = 'bg-green-500';  
+                  let seatColor = 'bg-green-500';
                   if (seat.status === 'occupied') seatColor = 'bg-red-500';
                   if (seat.status === 'reserved') seatColor = 'bg-yellow-400';
 
+                  // Key: use seat.id if it’s from DB, or a temp key if newly created
+                  const seatKey = seat.id != null
+                    ? `seat-${seat.id}`
+                    : `temp-${section.id}-${idx}`;
+
                   return (
                     <div
-                      key={idx}
+                      key={seatKey}
                       style={{
                         position: 'absolute',
                         left: seatX,
@@ -705,7 +688,7 @@ export default function SeatLayoutEditor() {
               {editingSectionId ? 'Edit Section' : 'Add Section'}
             </h3>
             <div className="space-y-4">
-              {/* Name */}
+              {/* Section Name */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Section Name
@@ -738,7 +721,7 @@ export default function SeatLayoutEditor() {
                 />
               </div>
 
-              {/* Type */}
+              {/* Type (counter/table) */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Section Type
