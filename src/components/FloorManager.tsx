@@ -43,7 +43,7 @@ interface DBSeat {
   position_y: number;
   status: 'free' | 'reserved' | 'occupied';
   capacity?: number;
-  occupant_info?: SeatOccupantInfo; // Possibly empty from layout
+  occupant_info?: SeatOccupantInfo;
 }
 
 /** A seat section in your layout. */
@@ -180,7 +180,6 @@ export default function FloorManager({
   async function fetchOneLayout(layoutId: number) {
     setLoading(true);
     try {
-      // Load the layout
       const layoutResp = await axios.get<LayoutData>(`http://localhost:3000/layouts/${layoutId}`);
       setLayout(layoutResp.data);
 
@@ -319,6 +318,19 @@ export default function FloorManager({
     setShowSeatDialog(false);
   }
 
+  // A helper to start the wizard for a specific free seat
+  function startWizardForFreeSeat(seatId: number) {
+    setSeatWizard({
+      occupantType: null,
+      occupantId: null,
+      occupantName: '',
+      occupantPartySize: 1,
+      active: true,
+      selectedSeatIds: [seatId],
+    });
+    handlePickOccupantOpen();
+  }
+
   // ---------------------------
   // 6. Pick occupant => wizard
   // ---------------------------
@@ -355,14 +367,14 @@ export default function FloorManager({
     }
 
     const occupantName = occupantNameFull.split(/\s+/)[0];
-    setSeatWizard({
+    setSeatWizard(prev => ({
+      ...prev,
       occupantType: typeStr === 'reservation' ? 'reservation' : 'waitlist',
       occupantId,
       occupantName,
       occupantPartySize,
       active: true,
-      selectedSeatIds: [],
-    });
+    }));
     handlePickOccupantClose();
   }
 
@@ -694,18 +706,22 @@ export default function FloorManager({
                 const seatX = seat.position_x - seatDiameterBase / 2;
                 const seatY = seat.position_y - seatDiameterBase / 2;
 
-                // [CHANGE] We'll rely on occupant_info FIRST, to set color:
+                // 1) occupantAlloc to see occupant status
                 const occupantAlloc = getOccupantInfo(seat.id);
-                const occupantStatus = occupantAlloc?.occupant_status; 
+                const occupantStatus = occupantAlloc?.occupant_status;
+
+                // 2) pick seat color by occupant or seatWizard selection
                 let seatColor = 'bg-green-500';
 
-                if (occupantStatus === 'reserved') {
+                // [NEW CODE] If wizard is active & seat is in selectedSeatIds => highlight in BLUE
+                if (seatWizard.active && seatWizard.selectedSeatIds.includes(seat.id)) {
+                  seatColor = 'bg-blue-500';
+                } else if (occupantStatus === 'reserved') {
                   seatColor = 'bg-yellow-400';
                 } else if (occupantStatus === 'seated' || occupantStatus === 'occupied') {
                   seatColor = 'bg-red-500';
-                } 
-                else {
-                  // If occupantAlloc is not found, fall back to seat.status 
+                } else {
+                  // occupantAlloc not found => fallback to raw seat.status
                   if (seat.status === 'reserved') {
                     seatColor = 'bg-yellow-400';
                   } else if (seat.status === 'occupied') {
@@ -820,7 +836,6 @@ export default function FloorManager({
               ✕
             </button>
 
-            {/* [CHANGE] Decide actual occupant status from occupant_info */}
             {selectedSeat.occupant_info?.occupant_status === 'reserved' ? (
               <div>
                 <h3 className="font-bold text-lg mb-2">Seat Reserved</h3>
@@ -889,12 +904,25 @@ export default function FloorManager({
             ) : (
               <div>
                 <h3 className="font-bold text-lg mb-2">Seat Is Free</h3>
-                <p className="text-sm text-gray-600">
+                <p className="text-sm text-gray-600 mb-2">
                   This seat is currently free.
                   {seatWizard.active
                     ? ' You can toggle it in the wizard.'
                     : ' Start the wizard to seat or reserve someone here.'}
                 </p>
+
+                {!seatWizard.active && (
+                  <button
+                    onClick={() => {
+                      if (!selectedSeat) return;
+                      startWizardForFreeSeat(selectedSeat.id);
+                      handleCloseSeatDialog();
+                    }}
+                    className="px-4 py-2 bg-blue-600 text-white rounded"
+                  >
+                    Seat/Reserve Now
+                  </button>
+                )}
               </div>
             )}
           </div>
