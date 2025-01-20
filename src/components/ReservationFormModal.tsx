@@ -1,5 +1,5 @@
 // src/components/ReservationFormModal.tsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
 interface Props {
@@ -16,14 +16,45 @@ export default function ReservationFormModal({ onClose, onSuccess }: Props) {
   const [contactEmail, setContactEmail] = useState('');
   const [error, setError] = useState('');
 
+  // New: store timeslots from /availability
+  const [timeslots, setTimeslots] = useState<string[]>([]);
+
+  // fetch timeslots whenever date or partySize changes
+  useEffect(() => {
+    async function fetchAvailability() {
+      if (!date || partySize < 1) {
+        setTimeslots([]);
+        return;
+      }
+      try {
+        const resp = await axios.get('http://localhost:3000/availability', {
+          params: {
+            date,
+            party_size: partySize,
+          },
+        });
+        setTimeslots(resp.data.slots || []);
+      } catch (err) {
+        console.error('Availability fetch error:', err);
+        setTimeslots([]);
+      }
+    }
+    fetchAvailability();
+  }, [date, partySize]);
+
   const handleCreate = async () => {
     setError('');
-    const start_time = `${date}T${time}`;
 
     if (!contactName) {
       setError('Guest name is required.');
       return;
     }
+    if (!date || !time) {
+      setError('Please pick a valid date/time.');
+      return;
+    }
+
+    const start_time = `${date}T${time}:00`; // e.g. "2025-01-20T18:00:00"
 
     try {
       await axios.post('http://localhost:3000/reservations', {
@@ -60,7 +91,7 @@ export default function ReservationFormModal({ onClose, onSuccess }: Props) {
         )}
 
         <div className="space-y-4">
-          {/* Date + Time */}
+          {/* Date + Party Size */}
           <div className="flex space-x-2">
             <div className="flex-1">
               <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
@@ -72,26 +103,30 @@ export default function ReservationFormModal({ onClose, onSuccess }: Props) {
               />
             </div>
             <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Time</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Party Size</label>
               <input
-                type="time"
-                value={time}
-                onChange={(e) => setTime(e.target.value)}
+                type="number"
+                min={1}
+                value={partySize}
+                onChange={(e) => setPartySize(Number(e.target.value))}
                 className="w-full p-2 border border-gray-300 rounded focus:ring-1 focus:ring-orange-500"
               />
             </div>
           </div>
 
-          {/* Party Size */}
+          {/* Time => dropdown from /availability */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Party Size</label>
-            <input
-              type="number"
-              min={1}
-              value={partySize}
-              onChange={(e) => setPartySize(Number(e.target.value))}
+            <label className="block text-sm font-medium text-gray-700 mb-1">Time</label>
+            <select
+              value={time}
+              onChange={(e) => setTime(e.target.value)}
               className="w-full p-2 border border-gray-300 rounded focus:ring-1 focus:ring-orange-500"
-            />
+            >
+              <option value="">-- Select a time --</option>
+              {timeslots.map((slot) => (
+                <option key={slot} value={slot}>{slot}</option>
+              ))}
+            </select>
           </div>
 
           {/* Name */}

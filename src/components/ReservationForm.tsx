@@ -1,13 +1,13 @@
 // src/components/ReservationForm.tsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Clock, Users, Phone, Mail } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
 interface ReservationFormData {
-  date: string;
-  time: string;
+  date: string;       // "YYYY-MM-DD"
+  time: string;       // now a direct value from the timeslot dropdown, e.g. "17:30"
   partySize: number;
   firstName: string;
   lastName: string;
@@ -29,16 +29,54 @@ export default function ReservationForm() {
     email: '',
   });
 
+  // We'll store the timeslots from /availability here:
+  const [timeslots, setTimeslots] = useState<string[]>([]);
+
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  /**
+   * Whenever date or partySize changes, fetch /availability
+   * so we can populate the time dropdown with valid slots.
+   */
+  useEffect(() => {
+    async function fetchAvailability() {
+      try {
+        if (!formData.date || !formData.partySize) {
+          setTimeslots([]);
+          return;
+        }
+        const response = await axios.get('http://localhost:3000/availability', {
+          params: {
+            date: formData.date,
+            party_size: formData.partySize,
+          },
+        });
+        // e.g. { "slots": ["17:00","17:30","18:00"] }
+        setTimeslots(response.data.slots || []);
+      } catch (err) {
+        console.error('Error fetching availability:', err);
+        setTimeslots([]);
+      }
+    }
+
+    fetchAvailability();
+  }, [formData.date, formData.partySize]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setSuccess('');
 
-    const start_time = `${formData.date}T${formData.time}`;
-    // Fallback logic for logged in user’s data
+    // Combine date + chosen time into an ISO string for start_time
+    if (!formData.date || !formData.time) {
+      setError('Please pick a date and time.');
+      return;
+    }
+    const start_time = `${formData.date}T${formData.time}:00`; 
+    // e.g. "2025-01-25T17:30:00"
+
+    // fallback logic for logged in user’s data
     const contactFirstName = formData.firstName.trim()
       || (user ? user.name?.split(' ')[0] ?? '' : '');
     const contactLastName  = formData.lastName.trim()
@@ -46,37 +84,28 @@ export default function ReservationForm() {
     const contactPhone     = formData.phone.trim() || user?.phone || '';
     const contactEmail     = formData.email.trim() || user?.email || '';
 
-    if (!user) {
-      // If not logged in, enforce required fields
-      if (!contactFirstName) {
-        setError('First name is required if not signed in.');
-        return;
-      }
-      if (!contactEmail) {
-        setError('Email is required if not signed in.');
-        return;
-      }
-      // etc...
+    if (!contactFirstName) {
+      setError('First name is required.');
+      return;
     }
 
     try {
-      // Post to Rails
       const resp = await axios.post('http://localhost:3000/reservations', {
         start_time,
         party_size: formData.partySize,
         contact_name: [contactFirstName, contactLastName].filter(Boolean).join(' '),
         contact_phone: contactPhone,
         contact_email: contactEmail,
-        restaurant_id: 1,
+        restaurant_id: 1, // or your actual restaurant ID
       });
 
-      // If success, we can either setSuccess or navigate to the confirmation page
+      // If success, show message or navigate
       setSuccess('Reservation created successfully!');
       console.log('Reservation created:', resp.data);
 
-      // Navigate to /reservation-confirmation with the newly created reservation in state
+      // navigate to a confirmation page with the new reservation
       navigate('/reservation-confirmation', {
-        state: { reservation: resp.data }
+        state: { reservation: resp.data },
       });
     } catch (err) {
       console.error('Error creating reservation:', err);
@@ -87,8 +116,8 @@ export default function ReservationForm() {
   const isLoggedIn = !!user;
 
   return (
-    <form 
-      onSubmit={handleSubmit} 
+    <form
+      onSubmit={handleSubmit}
       className="w-full max-w-lg mx-auto bg-white rounded-lg shadow-lg p-6"
     >
       {/* Error / Success Messages */}
@@ -120,22 +149,26 @@ export default function ReservationForm() {
           />
         </div>
 
-        {/* Time */}
+        {/* Time (Now a Dropdown) */}
         <div className="space-y-2">
           <label htmlFor="time" className="block text-sm font-medium text-gray-700">
             Time
           </label>
           <div className="relative">
             <Clock className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
-            <input
-              type="time"
+            <select
               id="time"
               value={formData.time}
               onChange={(e) => setFormData({ ...formData, time: e.target.value })}
               className="w-full pl-10 pr-3 py-2 border border-gray-300 
                          rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
               required
-            />
+            >
+              <option value="">-- Select a time --</option>
+              {timeslots.map((slot) => (
+                <option key={slot} value={slot}>{slot}</option>
+              ))}
+            </select>
           </div>
         </div>
 

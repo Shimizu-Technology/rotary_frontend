@@ -10,9 +10,9 @@ import {
 interface Reservation {
   id: number;
   contact_name?: string;
-  start_time?: string;    // e.g. "2025-01-25T19:00:00Z"
+  start_time?: string;   // e.g. "2025-01-25T19:00:00Z"
   party_size?: number;
-  status?: string;        // "booked", "reserved", etc.
+  status?: string;       // "booked", "reserved", etc.
   contact_phone?: string;
 }
 
@@ -32,14 +32,12 @@ interface SeatAllocation {
   occupant_id: number | null;
   occupant_name?: string;
   occupant_party_size?: number;
-  occupant_status?: string;  // e.g. "booked", "reserved", "seated", etc.
-  allocated_at?: string;
+  occupant_status?: string; // e.g. "booked", "reserved", "seated"
+  start_time?: string;
+  end_time?: string;
   released_at?: string | null;
 }
 
-/** 
- * If a seat is allocated this date, occupant info is gleaned from seat_allocations[] 
- */
 interface SeatOccupantInfo {
   occupant_type?: 'reservation' | 'waitlist';
   occupant_id?: number;
@@ -48,17 +46,12 @@ interface SeatOccupantInfo {
   occupant_status?: string;
 }
 
-/** 
- * The seat no longer has its own "status" in DB, 
- * we only store label, position, capacity, etc. 
- */
 interface DBSeat {
   id: number;
   label?: string;
   position_x: number;
   position_y: number;
   capacity?: number;
-  // optional: any other seat columns you do keep
 }
 
 interface DBSeatSection {
@@ -74,6 +67,13 @@ interface LayoutData {
   id: number;
   name: string;
   seat_sections: DBSeatSection[];
+}
+
+/** If you fetch the restaurant to see its current_layout_id. */
+interface RestaurantData {
+  id: number;
+  name: string;
+  current_layout_id?: number | null;
 }
 
 interface FloorManagerProps {
@@ -145,68 +145,81 @@ export default function FloorManager({
   const [zoom, setZoom]                 = useState(1.0);
   const [showGrid, setShowGrid]         = useState(true);
 
-  /** 1. On mount, fetch all layouts, pick the first if available */
+  /**
+   * 1. On mount => 
+   *    - Fetch the restaurant to see which layout is active
+   *    - Optionally also fetch all layouts so user can switch them
+   */
   useEffect(() => {
-    initData();
+    loadActiveLayoutAndAllLayouts();
   }, []);
 
-  async function initData() {
+  async function loadActiveLayoutAndAllLayouts() {
     setLoading(true);
     try {
-      const layoutResp = await axios.get<LayoutData[]>('http://localhost:3000/layouts');
-      setAllLayouts(layoutResp.data);
-      if (layoutResp.data.length === 0) {
+      // Example: GET /restaurants/1 => returns { id:1, name:"Rotary Sushi", current_layout_id:2 }
+      const restResp = await axios.get<RestaurantData>('http://localhost:3000/restaurants/1'); 
+      const restaurant = restResp.data;
+
+      // Optionally, also fetch all layouts if user can switch manually
+      const layoutsResp = await axios.get<LayoutData[]>('http://localhost:3000/layouts');
+      setAllLayouts(layoutsResp.data);
+
+      if (restaurant.current_layout_id) {
+        // This is the layout we want to show initially
+        setSelectedLayoutId(restaurant.current_layout_id);
+        await fetchLayoutAndDateData(restaurant.current_layout_id, selectedDate);
+      } else {
+        // If there's no active layout, you can either:
+        //  - do nothing, or
+        //  - pick the first layout, or
+        //  - set layout = null
+        console.warn('No current_layout_id set for this restaurant.');
         setLayout(null);
         setSelectedLayoutId(null);
-      } else {
-        const first = layoutResp.data[0];
-        setSelectedLayoutId(first.id);
-        // fetch the layout plus date-based data
-        await fetchLayoutAndDateData(first.id, selectedDate);
       }
     } catch (err) {
-      console.error('Error fetching layouts:', err);
+      console.error('Error loading active layout or layouts:', err);
       setLayout(null);
+      setSelectedLayoutId(null);
     } finally {
       setLoading(false);
     }
   }
 
-  /** 2. Whenever user picks a layout, load that layout plus the date's data */
-  async function handleSelectLayout(id: number) {
-    setSelectedLayoutId(id);
-    await fetchLayoutAndDateData(id, selectedDate);
-  }
-
-  /** 3. Whenever the user changes the date, re-fetch reservations, waitlist, seat_allocations for that date. */
+  /**
+   * 2. Whenever user picks a different layout from the dropdown,
+   *    or changes the date, we re-fetch that layout’s data
+   */
   useEffect(() => {
     if (!selectedLayoutId) return;
     fetchLayoutAndDateData(selectedLayoutId, selectedDate);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate]);
 
-  /** Single helper that fetches:
-   *  - the given layout,
-   *  - reservations?date=YYYY-MM-DD,
-   *  - waitlist_entries?date=YYYY-MM-DD,
-   *  - seat_allocations?date=YYYY-MM-DD
+  /** Let user manually pick from the dropdown (if you still want that UI) */
+  async function handleSelectLayout(id: number) {
+    setSelectedLayoutId(id);
+    await fetchLayoutAndDateData(id, selectedDate);
+  }
+
+  /**
+   * Single helper that fetches:
+   *  - the layout data (seat_sections, seats),
+   *  - date-based reservations, waitlist, seat_allocations
    */
   async function fetchLayoutAndDateData(layoutId: number, dateStr: string) {
     setLoading(true);
     try {
-      // 1) fetch layout
       const layoutRes = await axios.get<LayoutData>(`http://localhost:3000/layouts/${layoutId}`);
       setLayout(layoutRes.data);
 
-      // 2) fetch reservations
       const resResp = await axios.get<Reservation[]>(`http://localhost:3000/reservations?date=${dateStr}`);
       setDateReservations(resResp.data);
 
-      // 3) fetch waitlist
       const waitResp = await axios.get<WaitlistEntry[]>(`http://localhost:3000/waitlist_entries?date=${dateStr}`);
       setDateWaitlist(waitResp.data);
 
-      // 4) fetch seat_allocations
       const allocResp = await axios.get<SeatAllocation[]>(`http://localhost:3000/seat_allocations?date=${dateStr}`);
       setDateSeatAllocations(allocResp.data);
 
@@ -221,14 +234,14 @@ export default function FloorManager({
     }
   }
 
-  /** Manually refresh if needed */
+  /** A manual refresh if needed */
   async function refreshLayout() {
     if (!selectedLayoutId) return;
     await fetchLayoutAndDateData(selectedLayoutId, selectedDate);
     onRefreshData(); // optional
   }
 
-  /** 4. Whenever layout changes, do bounding logic for seat arrangement. */
+  /** 4. bounding logic */
   useEffect(() => {
     if (!layout) return;
     if (layoutSize === 'auto') {
@@ -270,11 +283,10 @@ export default function FloorManager({
     setSeatScale(1.0);
   }
 
-  /** 5. getOccupantInfo => find if seat is allocated for the selected date. */
+  /** 5. occupant info => seat_allocations */
   function getOccupantInfo(seatId: number): SeatOccupantInfo | undefined {
     const alloc = dateSeatAllocations.find(a => a.seat_id === seatId && !a.released_at);
     if (!alloc || !alloc.occupant_id) return undefined;
-
     return {
       occupant_type: alloc.occupant_type,
       occupant_id: alloc.occupant_id,
@@ -287,22 +299,22 @@ export default function FloorManager({
   /** 6. seat click & wizard */
   function handleSeatClick(seat: DBSeat) {
     const occupant = getOccupantInfo(seat.id);
-    const isFreeThisDate = !occupant;
+    const isFree   = !occupant;
 
     if (seatWizard.active) {
       // in seat-selection mode
       const alreadySelected = seatWizard.selectedSeatIds.includes(seat.id);
-      if (!alreadySelected && !isFreeThisDate) {
+      if (!alreadySelected && !isFree) {
         alert(`Seat #${seat.label || seat.id} is not free on ${selectedDate}.`);
         return;
       }
       if (!alreadySelected && seatWizard.selectedSeatIds.length >= seatWizard.occupantPartySize) {
-        alert(`You need exactly ${seatWizard.occupantPartySize} seat(s).`);
+        alert(`Need exactly ${seatWizard.occupantPartySize} seat(s).`);
         return;
       }
       toggleSelectedSeat(seat.id);
     } else {
-      // show seat detail
+      // open detail dialog
       setSelectedSeat(seat);
       setShowSeatDialog(true);
     }
@@ -399,13 +411,18 @@ export default function FloorManager({
       alert(`Need exactly ${seatWizard.occupantPartySize} seat(s).`);
       return;
     }
+    // seat them [now, now+60min]
+    const start = new Date();
+    const end   = new Date(start.getTime() + 60 * 60_000);
+
     try {
       await axios.post('http://localhost:3000/seat_allocations/multi_create', {
         seat_allocation: {
           occupant_type: seatWizard.occupantType,
           occupant_id: seatWizard.occupantId,
           seat_ids: seatWizard.selectedSeatIds,
-          allocated_at: new Date().toISOString(),
+          start_time: start.toISOString(),
+          end_time:   end.toISOString(),
         },
       });
       handleCancelWizard();
@@ -422,13 +439,17 @@ export default function FloorManager({
       alert(`Need exactly ${seatWizard.occupantPartySize} seat(s).`);
       return;
     }
+    const start = new Date();
+    const end   = new Date(start.getTime() + 60 * 60_000);
+
     try {
       await axios.post('http://localhost:3000/seat_allocations/reserve', {
         seat_allocation: {
           occupant_type: seatWizard.occupantType,
-          occupant_id: seatWizard.occupantId,
-          seat_ids: seatWizard.selectedSeatIds,
-          allocated_at: new Date().toISOString(),
+          occupant_id:   seatWizard.occupantId,
+          seat_ids:      seatWizard.selectedSeatIds,
+          start_time:    start.toISOString(),
+          end_time:      end.toISOString(),
         },
       });
       handleCancelWizard();
@@ -508,8 +529,8 @@ export default function FloorManager({
           <LayoutDashboard className="mx-auto text-gray-300" size={64} />
           <h2 className="text-xl font-semibold text-gray-800 mt-4">No Layout Found</h2>
           <p className="text-gray-600 mt-2">
-            It looks like this restaurant hasn’t set up a layout yet.
-            You can create one to manage seating arrangements.
+            It looks like this restaurant hasn’t set up a layout yet,
+            or no layout is currently active.
           </p>
           <button
             onClick={() => onTabChange('layout')}
@@ -522,7 +543,7 @@ export default function FloorManager({
     );
   }
 
-  // Filter to only “booked” reservations, “waiting” waitlist if you like
+  // e.g. filter to only “booked” reservations or “waiting” waitlist
   const seatableReservations = dateReservations.filter(r => r.status === 'booked');
   const seatableWaitlist     = dateWaitlist.filter(w => w.status === 'waiting');
 
@@ -546,7 +567,7 @@ export default function FloorManager({
           />
         </div>
 
-        {/* Layout selection */}
+        {/* Layout selection (if you want staff to switch manually) */}
         <div className="flex items-center space-x-2">
           <label className="text-sm font-medium">Layout:</label>
           <select
@@ -554,7 +575,7 @@ export default function FloorManager({
             onChange={e => handleSelectLayout(Number(e.target.value))}
             className="border border-gray-300 rounded p-1"
           >
-            <option value="">-- Choose Layout --</option>
+            <option value="">-- None --</option>
             {allLayouts.map(ld => (
               <option key={ld.id} value={ld.id}>
                 {ld.name}
@@ -694,17 +715,13 @@ export default function FloorManager({
 
               {section.seats.map((seat, idx) => {
                 const keyVal = seat.id ? `seat-${seat.id}` : `temp-${idx}`;
-                // Position seat
                 const seatX = seat.position_x - seatDiameterBase / 2;
                 const seatY = seat.position_y - seatDiameterBase / 2;
 
-                // occupant for this date
                 const occupant = getOccupantInfo(seat.id);
                 const occupantStatus = occupant?.occupant_status;
-
                 const isSelected = seatWizard.selectedSeatIds.includes(seat.id);
 
-                // Decide seat color: occupant => "reserved" => yellow, "seated"/"occupied" => red, else green
                 let seatColor = 'bg-green-500';
                 if (seatWizard.active && isSelected) {
                   seatColor = 'bg-blue-500';
@@ -712,12 +729,9 @@ export default function FloorManager({
                   seatColor = 'bg-yellow-400';
                 } else if (occupantStatus === 'seated' || occupantStatus === 'occupied') {
                   seatColor = 'bg-red-500';
-                } // else remain green
+                }
 
-                // occupant name if allocated, else seat label
-                const occupantDisplay = occupant?.occupant_name
-                  || seat.label
-                  || `Seat ${seat.id}`;
+                const occupantDisplay = occupant?.occupant_name || seat.label || `Seat ${seat.id}`;
 
                 return (
                   <div
@@ -804,7 +818,6 @@ export default function FloorManager({
 
       {/* ---------- Seat Detail Dialog ---------- */}
       {showSeatDialog && selectedSeat && (() => {
-        // occupant for this seat on the chosen date
         const occupant = getOccupantInfo(selectedSeat.id);
 
         if (occupant?.occupant_status === 'reserved') {
@@ -827,34 +840,28 @@ export default function FloorManager({
                 </p>
                 <div className="flex flex-col space-y-2">
                   <button
-                    onClick={() => {
-                      handleArriveOccupant(
-                        occupant.occupant_type || 'reservation',
-                        occupant.occupant_id || 0
-                      );
-                    }}
+                    onClick={() => handleArriveOccupant(
+                      occupant.occupant_type || 'reservation',
+                      occupant.occupant_id || 0
+                    )}
                     className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
                   >
                     Seat This Party
                   </button>
                   <button
-                    onClick={() => {
-                      handleNoShow(
-                        occupant.occupant_type || 'reservation',
-                        occupant.occupant_id || 0
-                      );
-                    }}
+                    onClick={() => handleNoShow(
+                      occupant.occupant_type || 'reservation',
+                      occupant.occupant_id || 0
+                    )}
                     className="px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700"
                   >
                     Mark No-Show
                   </button>
                   <button
-                    onClick={() => {
-                      handleCancelOccupant(
-                        occupant.occupant_type || 'reservation',
-                        occupant.occupant_id || 0
-                      );
-                    }}
+                    onClick={() => handleCancelOccupant(
+                      occupant.occupant_type || 'reservation',
+                      occupant.occupant_id || 0
+                    )}
                     className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
                   >
                     Cancel Reservation
@@ -863,10 +870,7 @@ export default function FloorManager({
               </div>
             </div>
           );
-        } else if (
-          occupant?.occupant_status === 'seated' ||
-          occupant?.occupant_status === 'occupied'
-        ) {
+        } else if (occupant?.occupant_status === 'seated' || occupant?.occupant_status === 'occupied') {
           return (
             <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
               <div className="bg-white p-4 rounded shadow w-96 relative">
@@ -885,12 +889,10 @@ export default function FloorManager({
                   </strong>
                 </p>
                 <button
-                  onClick={() => {
-                    handleFinishOccupant(
-                      occupant.occupant_type || 'reservation',
-                      occupant.occupant_id || 0
-                    );
-                  }}
+                  onClick={() => handleFinishOccupant(
+                    occupant.occupant_type || 'reservation',
+                    occupant.occupant_id || 0
+                  )}
                   className="px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700"
                 >
                   Finish / Free Seat
@@ -899,7 +901,7 @@ export default function FloorManager({
             </div>
           );
         } else {
-          // No occupant => seat is free for this date
+          // seat is free
           return (
             <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
               <div className="bg-white p-4 rounded shadow w-96 relative">
