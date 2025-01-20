@@ -15,16 +15,15 @@ interface LayoutData {
   name: string;
   restaurant_id: number;
   sections_data: {
-    // Optionally store seat section offsets/orientation, but NOT seat arrays
+    // Optionally store seat section offsets/orientation, but NOT seat arrays in older approaches
+    // For the new approach, we DO store seats in 'sections' to pass to the server for creation.
     sections: SeatSection[];
   };
 }
 
-// Each seat section’s geometry. We store local seat arrays for UI preview.
-// The server uses these to create/update real DB seats (via LayoutsController#update).
+// Each seat section’s geometry. 
 interface SeatSection {
-  // 'id' is a string so we can handle either numeric IDs from DB or "section-1" for new.
-  id: string;       
+  id: string;       // e.g. "section-1" or DB ID as a string
   dbId?: number;    // Actual seat_section.id if known from DB
   name: string;
   type: 'counter' | 'table';
@@ -34,15 +33,15 @@ interface SeatSection {
   seats: DBSeat[];
 }
 
-// Minimal seat interface for local in-memory usage. 
-// Real seats get created/updated in the DB via the Rails controller.
+/** 
+ * Minimal seat interface for the layout editor. 
+ * We removed `status` since we no longer use seat.status in DB. 
+ */
 interface DBSeat {
-  // 'id' can be numeric if from DB, or omitted if newly created client-side.
-  id?: number;          
+  id?: number;           // numeric if from DB, or undefined if not persisted
   label?: string;
   position_x: number;
   position_y: number;
-  status: string;       // "free", "reserved", or "occupied"
   capacity: number;
 }
 
@@ -162,7 +161,6 @@ export default function SeatLayoutEditor() {
     let minX = Infinity, maxX = -Infinity;
     let minY = Infinity, maxY = -Infinity;
 
-    // If you store seats locally for the UI:
     sections.forEach((sec) => {
       sec.seats.forEach((seat) => {
         const globalX = sec.offsetX + seat.position_x;
@@ -182,7 +180,6 @@ export default function SeatLayoutEditor() {
     setSeatScale(1.0);
   }
 
-  /** Handle picking a different layout from the dropdown. */
   function handleSelectLayout(id: number) {
     if (id === 0) {
       // Creating a new layout from scratch
@@ -232,7 +229,7 @@ export default function SeatLayoutEditor() {
     setDragStart(null);
   }
 
-  /** ------------- Add/Edit seat sections in local memory ------------- */
+  // ---------- Add/Edit seat sections in local memory ----------
   function handleAddSection() {
     setEditingSectionId(null);
     setSectionConfig({
@@ -268,7 +265,6 @@ export default function SeatLayoutEditor() {
     setSections((prev) => prev.filter((s) => s.id !== sectionId));
   }
 
-  /** Create or edit a section in memory only. Real DB update happens on "Save Layout." */
   function createOrEditSection() {
     if (editingSectionId) {
       // updating existing
@@ -323,7 +319,6 @@ export default function SeatLayoutEditor() {
             label: `Seat #${newLabelNum}`,
             position_x: x,
             position_y: y,
-            status: 'free',
             capacity: seatCapacity,
           });
         }
@@ -388,7 +383,6 @@ export default function SeatLayoutEditor() {
           label: `Seat #${i + 1}`,
           position_x: posX,
           position_y: posY,
-          status: 'free',
           capacity: seatCapacity,
         });
       }
@@ -408,17 +402,12 @@ export default function SeatLayoutEditor() {
     setShowSectionDialog(false);
   }
 
-  /**
-   * Save layout => We send the entire sections array in `sections_data`.
-   * Your Rails LayoutsController#update will parse and create/update seat_sections & seats.
-   */
+  /** Save layout => send `sections_data` with seat arrays to server. */
   async function handleSaveLayout() {
     try {
       const payload = {
         name: layoutName,
         sections_data: {
-          // We are sending the full seat arrays here
-          // so the server can create/update seats in the DB.
           sections,
         },
       };
@@ -625,9 +614,9 @@ export default function SeatLayoutEditor() {
                   const seatX = seat.position_x * seatScale;
                   const seatY = seat.position_y * seatScale;
 
-                  let seatColor = 'bg-green-500';
-                  if (seat.status === 'occupied') seatColor = 'bg-red-500';
-                  if (seat.status === 'reserved') seatColor = 'bg-yellow-400';
+                  // If you want to color the seat differently, 
+                  // just use a single color (since there's no seat.status)
+                  const seatColor = 'bg-green-500';
 
                   // Key: use seat.id if it’s from DB, or a temp key if newly created
                   const seatKey = seat.id != null
