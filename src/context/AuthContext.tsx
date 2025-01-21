@@ -1,13 +1,13 @@
-// src/context/AuthContext.tsx
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import axios from 'axios';
-
+import { loginUser } from '../services/api';  // We'll call loginUser from api.ts
+import { apiClient } from '../services/api';   // We might import it if we want to set defaults, or not needed
+                                               // if the interceptor is handling everything
 export interface AuthUser {
   id: string;
   email: string;
   name?: string;
   role?: string;
-  phone?: string; // optional if you've added a phone column to users
+  phone?: string;
 }
 
 interface AuthContextType {
@@ -15,7 +15,7 @@ interface AuthContextType {
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
-  loginWithJwtUser: (jwt: string, userData: AuthUser) => void; // new helper
+  loginWithJwtUser: (jwt: string, userData: AuthUser) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -25,12 +25,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    // On mount, check localStorage for an existing token & user
     const token = localStorage.getItem('token');
     const storedUser = localStorage.getItem('user');
 
-    if (token) {
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-    }
+    // If a token exists, the apiClient interceptor will pick it up from localStorage
+    // so we don't necessarily have to do apiClient.defaults.headers.common.
+    // But you can do it if you like:
+    // if (token) {
+    //   apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    // }
+
     if (storedUser) {
       try {
         const parsedUser: AuthUser = JSON.parse(storedUser);
@@ -40,49 +45,56 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         localStorage.removeItem('user');
       }
     }
+
     setIsLoading(false);
   }, []);
 
   // *** LOGIN (traditional) ***
   const login = async (email: string, password: string) => {
+    // Clear any old tokens first
     localStorage.removeItem('token');
     localStorage.removeItem('user');
-    delete axios.defaults.headers.common['Authorization'];
+    // if we used apiClient.defaults, remove that too
+    // delete apiClient.defaults.headers.common['Authorization'];
 
-    const resp = await axios.post('http://localhost:3000/login', { email, password });
-    const { jwt, user: userData } = resp.data;
+    // Hit our loginUser from the API
+    const { jwt, user: userData } = await loginUser(email, password);
 
     // store in localStorage
     localStorage.setItem('token', jwt);
     localStorage.setItem('user', JSON.stringify(userData));
-    // set default axios header
-    axios.defaults.headers.common['Authorization'] = `Bearer ${jwt}`;
 
-    // set state
+    // If you wanted to also set apiClient.defaults (not strictly needed with the interceptor):
+    // apiClient.defaults.headers.common['Authorization'] = `Bearer ${jwt}`;
+
     setUser(userData);
   };
 
   // *** LOGOUT ***
   const logout = async () => {
+    // Optionally call an API endpoint for logout if you have one
     localStorage.removeItem('token');
     localStorage.removeItem('user');
-    delete axios.defaults.headers.common['Authorization'];
+    // delete apiClient.defaults.headers.common['Authorization'];
+
     setUser(null);
   };
 
   // *** NEW: loginWithJwtUser ***
-  // Useful if the server returns { jwt, user } from /signup,
-  // so we can store them in state and localStorage to auto-login.
   const loginWithJwtUser = (jwt: string, userData: AuthUser) => {
     localStorage.setItem('token', jwt);
     localStorage.setItem('user', JSON.stringify(userData));
-    axios.defaults.headers.common['Authorization'] = `Bearer ${jwt}`;
+
+    // Optionally do:
+    // apiClient.defaults.headers.common['Authorization'] = `Bearer ${jwt}`;
 
     setUser(userData);
   };
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, logout, loginWithJwtUser }}>
+    <AuthContext.Provider
+      value={{ user, isLoading, login, logout, loginWithJwtUser }}
+    >
       {children}
     </AuthContext.Provider>
   );

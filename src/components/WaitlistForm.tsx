@@ -1,7 +1,9 @@
 // src/components/WaitlistForm.tsx
 import React, { useState } from 'react';
-import axios from 'axios';
 import { Users, User, Phone } from 'lucide-react';
+
+// 1) Import your new API helper
+import { createWaitlistEntry } from '../services/api';
 
 interface WaitlistFormData {
   name: string;
@@ -25,20 +27,18 @@ export default function WaitlistForm() {
     setSuccess('');
 
     try {
-      // The Rails WaitlistEntriesController might expect: 
-      //   contact_name, party_size, check_in_time, status, phone, etc.
-      const resp = await axios.post('http://localhost:3000/waitlist_entries', {
+      // 2) Use createWaitlistEntry
+      //    The Rails WaitlistEntriesController might expect:
+      //    contact_name, party_size, contact_phone, check_in_time, status, etc.
+      await createWaitlistEntry({
         contact_name: formData.name,
         party_size: formData.partySize,
         contact_phone: formData.phone,
-        // Possibly set check_in_time = new Date().toISOString()
         check_in_time: new Date().toISOString(),
         status: 'waiting',
       });
 
       setSuccess('Added to waitlist successfully!');
-      console.log('Waitlist entry created:', resp.data);
-
       // Reset form
       setFormData({ name: '', partySize: 1, phone: '' });
     } catch (err: any) {
@@ -48,9 +48,20 @@ export default function WaitlistForm() {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="w-full max-w-md mx-auto bg-white rounded-lg shadow-lg p-6">
-      {error && <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-md mb-4">{error}</div>}
-      {success && <div className="bg-green-50 border border-green-200 text-green-600 px-4 py-3 rounded-md mb-4">{success}</div>}
+    <form
+      onSubmit={handleSubmit}
+      className="w-full max-w-md mx-auto bg-white rounded-lg shadow-lg p-6"
+    >
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-md mb-4">
+          {error}
+        </div>
+      )}
+      {success && (
+        <div className="bg-green-50 border border-green-200 text-green-600 px-4 py-3 rounded-md mb-4">
+          {success}
+        </div>
+      )}
 
       <div className="space-y-4">
         {/* Name */}
@@ -65,7 +76,8 @@ export default function WaitlistForm() {
               id="name"
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+              className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md
+                         focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
               required
             />
           </div>
@@ -84,8 +96,11 @@ export default function WaitlistForm() {
               min="1"
               max="8"
               value={formData.partySize}
-              onChange={(e) => setFormData({ ...formData, partySize: parseInt(e.target.value) })}
-              className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+              onChange={(e) =>
+                setFormData({ ...formData, partySize: parseInt(e.target.value, 10) || 1 })
+              }
+              className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md
+                         focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
               required
             />
           </div>
@@ -103,7 +118,8 @@ export default function WaitlistForm() {
               id="phone"
               value={formData.phone}
               onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-              className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+              className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md
+                         focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
               required
             />
           </div>
@@ -114,7 +130,8 @@ export default function WaitlistForm() {
       <div className="mt-6">
         <button
           type="submit"
-          className="w-full bg-orange-600 text-white py-3 px-6 rounded-md hover:bg-orange-700 transition-colors duration-200 font-semibold"
+          className="w-full bg-orange-600 text-white py-3 px-6 rounded-md
+                     hover:bg-orange-700 transition-colors duration-200 font-semibold"
         >
           Join Waitlist
         </button>

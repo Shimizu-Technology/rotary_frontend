@@ -1,11 +1,17 @@
 // src/components/SeatLayoutEditor.tsx
-
 import React, { useEffect, useState } from 'react';
-import axios from 'axios';
 import {
   Save, Trash2, Plus as LucidePlus, Settings, Edit2,
   Minus, Maximize, Power
 } from 'lucide-react';
+
+// Import your API helpers
+import {
+  fetchAllLayouts,
+  createLayout,
+  updateLayout,
+  activateLayout,
+} from '../services/api';
 
 /** ---------- Data Interfaces ---------- **/
 
@@ -79,7 +85,10 @@ export default function SeatLayoutEditor() {
   const [activeLayoutId, setActiveLayoutId] = useState<number | null>(null);
   const [layoutName, setLayoutName] = useState('New Layout');
 
+  // We store the seat sections (like layout.sections_data.sections)
   const [sections, setSections] = useState<SeatSection[]>([]);
+
+  // Canvas sizing
   const [layoutSize, setLayoutSize] = useState<'auto'|'small'|'medium'|'large'>('medium');
   const [canvasWidth, setCanvasWidth]   = useState(2000);
   const [canvasHeight, setCanvasHeight] = useState(1200);
@@ -87,6 +96,7 @@ export default function SeatLayoutEditor() {
   const [zoom, setZoom]                 = useState(1.0);
   const [showGrid, setShowGrid]         = useState(true);
 
+  // Dragging
   const [isDragging, setIsDragging]           = useState(false);
   const [selectedSection, setSelectedSection] = useState<string | null>(null);
   const [dragStart, setDragStart]             = useState<{ x: number; y: number } | null>(null);
@@ -102,16 +112,16 @@ export default function SeatLayoutEditor() {
   });
   const [seatCapacity, setSeatCapacity] = useState(1);
 
-  // On mount, load layouts
+  // On mount, load all layouts
   useEffect(() => {
     async function loadLayouts() {
       try {
-        const resp = await axios.get<LayoutData[]>('http://localhost:3000/layouts');
-        setAllLayouts(resp.data);
+        const layouts = await fetchAllLayouts();
+        setAllLayouts(layouts);
 
-        // Optionally auto-select first
-        if (resp.data.length > 0) {
-          const first = resp.data[0];
+        // Optionally auto-select the first layout
+        if (layouts.length > 0) {
+          const first = layouts[0];
           setActiveLayoutId(first.id);
           setLayoutName(first.name || 'Untitled Layout');
           setSections(first.sections_data.sections || []);
@@ -145,7 +155,6 @@ export default function SeatLayoutEditor() {
 
     let minX = Infinity, maxX = -Infinity;
     let minY = Infinity, maxY = -Infinity;
-
     sections.forEach(sec => {
       sec.seats.forEach(seat => {
         const gx = sec.offsetX + seat.position_x;
@@ -252,7 +261,7 @@ export default function SeatLayoutEditor() {
 
   function createOrEditSection() {
     if (editingSectionId) {
-      // updating existing
+      // updating existing section
       const oldSection = sections.find(s => s.id === editingSectionId);
       if (!oldSection) {
         setShowSectionDialog(false);
@@ -261,6 +270,7 @@ export default function SeatLayoutEditor() {
       const oldCount = oldSection.seats.length;
       const newCount = sectionConfig.seatCount;
 
+      // Update basic info
       setSections(prev =>
         prev.map(sec => {
           if (sec.id !== editingSectionId) return sec;
@@ -346,12 +356,15 @@ export default function SeatLayoutEditor() {
             posX = i * spacing;
           }
         } else {
+          // e.g. "table" arrangement
           if (sectionConfig.orientation === 'vertical') {
+            // 2 columns
             const colIndex = i % 2;
             const rowIndex = Math.floor(i / 2);
             posX = colIndex * spacing;
             posY = rowIndex * spacing;
           } else {
+            // horizontal orientation with rows
             const rowIndex = i % 2;
             const colIndex = Math.floor(i / 2);
             posX = colIndex * spacing;
@@ -393,20 +406,14 @@ export default function SeatLayoutEditor() {
 
       if (activeLayoutId) {
         // PATCH existing
-        const resp = await axios.patch(`http://localhost:3000/layouts/${activeLayoutId}`, {
-          layout: payload,
-        });
+        const updatedLayout = await updateLayout(activeLayoutId, payload);
         alert('Layout updated successfully!');
-        const updated = resp.data as LayoutData;
-        setLayoutName(updated.name);
-        setSections(updated.sections_data.sections || []);
+        setLayoutName(updatedLayout.name);
+        setSections(updatedLayout.sections_data.sections || []);
       } else {
         // POST new
-        const resp = await axios.post('http://localhost:3000/layouts', {
-          layout: payload,
-        });
+        const newLayout = await createLayout(payload);
         alert('Layout created!');
-        const newLayout = resp.data as LayoutData;
         setAllLayouts(prev => [...prev, newLayout]);
         setActiveLayoutId(newLayout.id);
         setLayoutName(newLayout.name);
@@ -418,25 +425,23 @@ export default function SeatLayoutEditor() {
     }
   }
 
-  /** 
-   * New method: Activate this layout => POST /layouts/:id/activate
-   * if we have an existing layoutId
-   */
+  /** Activate this layout => POST /layouts/:id/activate if we have an existing layoutId */
   async function handleActivateLayout() {
     if (!activeLayoutId) {
       alert('Cannot activate a layout that is not saved yet!');
       return;
     }
     try {
-      const resp = await axios.post(`http://localhost:3000/layouts/${activeLayoutId}/activate`);
-      alert(resp.data.message || 'Layout activated.');
+      const resp = await activateLayout(activeLayoutId);
+      // e.g. resp => { message: 'Layout activated' }
+      alert(resp.message || 'Layout activated.');
     } catch (err) {
       console.error('Error activating layout:', err);
       alert('Failed to activate layout—check console.');
     }
   }
 
-  // Zoom
+  // Zoom controls
   function handleZoomIn() {
     setZoom(z => Math.min(z + 0.25, 5.0));
   }

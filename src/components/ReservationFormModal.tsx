@@ -1,6 +1,8 @@
 // src/components/ReservationFormModal.tsx
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+
+// 1) Import your new API helpers
+import { fetchAvailability, createReservation } from '../services/api';
 
 interface Props {
   onClose: () => void;
@@ -16,32 +18,28 @@ export default function ReservationFormModal({ onClose, onSuccess }: Props) {
   const [contactEmail, setContactEmail] = useState('');
   const [error, setError] = useState('');
 
-  // New: store timeslots from /availability
+  // 2) We'll store timeslots from /availability
   const [timeslots, setTimeslots] = useState<string[]>([]);
 
-  // fetch timeslots whenever date or partySize changes
+  // 3) fetch timeslots whenever date or partySize changes
   useEffect(() => {
-    async function fetchAvailability() {
+    async function getTimeslots() {
       if (!date || partySize < 1) {
         setTimeslots([]);
         return;
       }
       try {
-        const resp = await axios.get('http://localhost:3000/availability', {
-          params: {
-            date,
-            party_size: partySize,
-          },
-        });
-        setTimeslots(resp.data.slots || []);
+        const data = await fetchAvailability(date, partySize);
+        setTimeslots(data.slots || []);
       } catch (err) {
         console.error('Availability fetch error:', err);
         setTimeslots([]);
       }
     }
-    fetchAvailability();
+    getTimeslots();
   }, [date, partySize]);
 
+  // 4) handle reservation creation
   const handleCreate = async () => {
     setError('');
 
@@ -54,10 +52,11 @@ export default function ReservationFormModal({ onClose, onSuccess }: Props) {
       return;
     }
 
-    const start_time = `${date}T${time}:00`; // e.g. "2025-01-20T18:00:00"
+    // e.g. "2025-01-20T18:00:00"
+    const start_time = `${date}T${time}:00`;
 
     try {
-      await axios.post('http://localhost:3000/reservations', {
+      await createReservation({
         restaurant_id: 1,
         start_time,
         party_size: partySize,
@@ -66,8 +65,10 @@ export default function ReservationFormModal({ onClose, onSuccess }: Props) {
         contact_email: contactEmail,
         status: 'booked',
       });
-      onSuccess(); // close + refresh
-    } catch (err: any) {
+
+      // If successful, close + refresh the parent
+      onSuccess();
+    } catch (err) {
       console.error('Error creating reservation:', err);
       setError('Failed to create reservation. Check console or try again.');
     }

@@ -1,7 +1,5 @@
 // src/components/StaffDashboard.tsx
-
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 
 // Child components
@@ -22,6 +20,15 @@ import {
   ChevronRight,
 } from 'lucide-react';
 
+// Import your new API helpers:
+import {
+  fetchReservations as apiFetchReservations,
+  fetchWaitlistEntries as apiFetchWaitlist,
+  fetchSeatAllocations as apiFetchSeatAllocations,
+  deleteReservation as apiDeleteReservation,
+  updateReservation as apiUpdateReservation,
+} from '../services/api';
+
 /** Reservation shape from backend. */
 interface Reservation {
   id: number;
@@ -29,7 +36,7 @@ interface Reservation {
   contact_phone?: string;
   contact_email?: string;
   party_size?: number;
-  status?: string;        // "booked", "seated", "finished", "canceled", "reserved", "no_show", ...
+  status?: string;        // "booked", "seated", "finished", "canceled", etc.
   seat_labels?: string[];
   start_time?: string;
 }
@@ -41,29 +48,17 @@ interface WaitlistEntry {
   contact_phone?: string;
   party_size?: number;
   check_in_time?: string;
-  status?: string;       // "waiting", "seated", "removed", "no_show", ...
+  status?: string; // "waiting", "seated", "removed", "no_show", ...
   seat_labels?: string[];
 }
 
 export default function StaffDashboard() {
   const { user } = useAuth();
 
-  /**
-   * Tab management. We have 4 tabs:
-   *   - 'reservations'
-   *   - 'waitlist'
-   *   - 'seating'
-   *   - 'layout'
-   */
+  // Tab management
   const [activeTab, setActiveTab] = useState<
     'reservations' | 'waitlist' | 'seating' | 'layout'
   >('reservations');
-
-  // Provide a helper function for child components to switch tabs
-  function handleTabChange(tab: string) {
-    // You can restrict this to valid tab keys if you like
-    setActiveTab(tab as any);
-  }
 
   // Data
   const [reservations, setReservations] = useState<Reservation[]>([]);
@@ -77,8 +72,7 @@ export default function StaffDashboard() {
   );
 
   // For editing or creating reservations
-  const [selectedReservation, setSelectedReservation] =
-    useState<Reservation | null>(null);
+  const [selectedReservation, setSelectedReservation] = useState<Reservation | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
 
   useEffect(() => {
@@ -101,11 +95,11 @@ export default function StaffDashboard() {
   async function fetchReservations() {
     console.log('[StaffDashboard] fetchReservations()...');
     try {
-      const resp = await axios.get<Reservation[]>('http://localhost:3000/reservations');
-      console.log('fetchReservations =>', resp.data);
+      const data = await apiFetchReservations();
+      console.log('fetchReservations =>', data);
 
       // Sort earliest -> latest
-      const sorted = resp.data.slice().sort((a, b) => {
+      const sorted = data.slice().sort((a, b) => {
         const dateA = new Date(a.start_time || '').getTime();
         const dateB = new Date(b.start_time || '').getTime();
         return dateA - dateB;
@@ -120,9 +114,9 @@ export default function StaffDashboard() {
   async function fetchWaitlist() {
     console.log('[StaffDashboard] fetchWaitlist()...');
     try {
-      const resp = await axios.get<WaitlistEntry[]>('http://localhost:3000/waitlist_entries');
-      console.log('fetchWaitlist =>', resp.data);
-      setWaitlist(resp.data);
+      const data = await apiFetchWaitlist();
+      console.log('fetchWaitlist =>', data);
+      setWaitlist(data);
     } catch (err) {
       console.error('Error fetching waitlist:', err);
     }
@@ -132,13 +126,13 @@ export default function StaffDashboard() {
   async function fetchOccupancyMap() {
     console.log('[StaffDashboard] fetchOccupancyMap()...');
     try {
-      const resp = await axios.get<any[]>('http://localhost:3000/seat_allocations');
-      console.log('fetchOccupancyMap => seat_allocations =>', resp.data);
+      const seatAllocs = await apiFetchSeatAllocations();
+      console.log('fetchOccupancyMap => seat_allocations =>', seatAllocs);
 
       // occupantKey => seat_labels
       const occupantSeatsMap: Record<string, string[]> = {};
 
-      resp.data.forEach((alloc) => {
+      seatAllocs.forEach((alloc: any) => {
         const occupantKey = alloc.reservation_id
           ? `reservation-${alloc.reservation_id}`
           : `waitlist-${alloc.waitlist_entry_id}`;
@@ -171,9 +165,12 @@ export default function StaffDashboard() {
     }
   }
 
-  // -------------------------------------------
-  // Reservations tab: filter by date & search
-  // -------------------------------------------
+  // Tab switch
+  function handleTabChange(tab: string) {
+    setActiveTab(tab as any);
+  }
+
+  // Reservations filtering
   const allReservationsForDate = reservations.filter((r) => {
     // Match date
     const dtStr = (r.start_time || '').substring(0, 10);
@@ -192,7 +189,7 @@ export default function StaffDashboard() {
     return matchesDate && matchesSearch;
   });
 
-  // Waitlist tab: filter by searchTerm
+  // Waitlist filtering
   const filteredWaitlist = waitlist.filter((w) => {
     const wName = w.contact_name?.toLowerCase() ?? '';
     const wPhone = w.contact_phone ?? '';
@@ -209,7 +206,7 @@ export default function StaffDashboard() {
   async function handleDeleteReservation(id: number) {
     console.log('[StaffDashboard] handleDeleteReservation =>', id);
     try {
-      await axios.delete(`http://localhost:3000/reservations/${id}`);
+      await apiDeleteReservation(id);
       setReservations((prev) => prev.filter((r) => r.id !== id));
       setSelectedReservation(null);
     } catch (err) {
@@ -220,13 +217,15 @@ export default function StaffDashboard() {
   async function handleEditReservation(updated: Reservation) {
     console.log('[StaffDashboard] handleEditReservation =>', updated);
     try {
-      await axios.patch(`http://localhost:3000/reservations/${updated.id}`, {
+      const patchData = {
         party_size: updated.party_size,
         contact_name: updated.contact_name,
         contact_phone: updated.contact_phone,
         contact_email: updated.contact_email,
         status: updated.status,
-      });
+      };
+      await apiUpdateReservation(updated.id, patchData);
+
       // Refresh
       await fetchReservations();
       await fetchOccupancyMap();
@@ -655,14 +654,14 @@ export default function StaffDashboard() {
         {activeTab === 'seating' && (
           <div className="bg-white shadow rounded-md p-4 mt-4">
             <FloorManager
-              /* We can filter reservations by date if you want only today's ones in 'Seating'. */
+              // Filter reservations if you want only today's in 'Seating'
               reservations={reservations.filter((r) => {
                 const dtStr = (r.start_time || '').substring(0, 10);
                 return dtStr === dateFilter; 
               })}
               waitlist={filteredWaitlist}
               onRefreshData={fetchData}
-              onTabChange={handleTabChange} // <-- pass the function to FloorManager
+              onTabChange={handleTabChange}
             />
           </div>
         )}

@@ -1,9 +1,11 @@
 // src/components/SignupPage.tsx
 import React, { useState } from 'react';
 import { ChevronRight, Utensils } from 'lucide-react';
-import axios from 'axios';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+
+// 1) Import the signupUser helper
+import { signupUser } from '../services/api';
 
 export default function SignupPage() {
   const [firstName, setFirstName] = useState('');
@@ -24,23 +26,27 @@ export default function SignupPage() {
     setSuccess('');
 
     try {
-      const resp = await axios.post('http://localhost:3000/signup', {
+      // 2) Call our signupUser function
+      const resp = await signupUser({
         first_name: firstName,
         last_name:  lastName,
-        phone,                // optional
+        phone,
         email,
         password,
         password_confirmation: passwordConfirmation,
-        restaurant_id: 1,     // Hardcoded or dynamic
+        restaurant_id: 1, // Hardcoded or dynamic
       });
 
-      const { jwt, user } = resp.data;
+      // 3) The API is expected to return something like { jwt, user }
+      const { jwt, user } = resp;
+
       // Immediately log in after successful signup
       loginWithJwtUser(jwt, user);
 
       setSuccess('User created & logged in successfully!');
       navigate('/');
     } catch (err: any) {
+      // If our server returns { errors: [...] } or something similar:
       if (err.response?.data?.errors) {
         setErrors(err.response.data.errors);
       } else {

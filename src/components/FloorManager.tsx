@@ -1,9 +1,25 @@
 // src/components/FloorManager.tsx
+
 import React, { useEffect, useState } from 'react';
-import axios from 'axios';
 import {
   Edit2, LayoutDashboard, Minus, Maximize, Plus as LucidePlus, Settings,
 } from 'lucide-react';
+
+// IMPORT your API helpers from api.ts
+import {
+  fetchRestaurant,
+  fetchAllLayouts,
+  fetchLayout,
+  fetchReservations,
+  fetchWaitlistEntries,
+  fetchSeatAllocations,
+  seatAllocationMultiCreate,
+  seatAllocationReserve,
+  seatAllocationFinish,
+  seatAllocationNoShow,
+  seatAllocationArrive,
+  seatAllocationCancel,
+} from '../services/api';
 
 /** ---------- Data Interfaces ---------- **/
 
@@ -69,7 +85,6 @@ interface LayoutData {
   seat_sections: DBSeatSection[];
 }
 
-/** If you fetch the restaurant to see its current_layout_id. */
 interface RestaurantData {
   id: number;
   name: string;
@@ -81,7 +96,6 @@ interface FloorManagerProps {
   onTabChange: (tab: string) => void;
 }
 
-// For bounding presets
 const LAYOUT_PRESETS = {
   auto:   { width: 0,    height: 0,    seatScale: 1.0 },
   small:  { width: 1200, height: 800,  seatScale: 1.0 },
@@ -99,6 +113,32 @@ interface SeatWizardState {
   selectedSeatIds: number[];
 }
 
+/**
+ * Helper: Returns start/end times for seat allocations.
+ * If the selectedDate is "today," start now; otherwise default to 6:00 PM.
+ */
+function getSeatTimes(selectedDate: string, durationMinutes = 60) {
+  const now = new Date();
+  // Convert the selectedDate string to a Date at midnight
+  const userDate = new Date(`${selectedDate}T00:00:00`);
+
+  // Compare just the date parts to see if it's the same calendar day
+  const isToday =
+    now.toISOString().slice(0, 10) === userDate.toISOString().slice(0, 10);
+
+  if (isToday) {
+    // If staff picked "today," seat them from now to +X minutes
+    const start = new Date();
+    const end = new Date(start.getTime() + durationMinutes * 60_000);
+    return { start, end };
+  } else {
+    // For a future/past date, pick 6 PM → 7 PM by default
+    const start = new Date(`${selectedDate}T18:00:00`);
+    const end = new Date(start.getTime() + durationMinutes * 60_000);
+    return { start, end };
+  }
+}
+
 export default function FloorManager({
   onRefreshData,
   onTabChange,
@@ -113,7 +153,7 @@ export default function FloorManager({
   const [dateWaitlist,        setDateWaitlist]        = useState<WaitlistEntry[]>([]);
   const [dateSeatAllocations, setDateSeatAllocations] = useState<SeatAllocation[]>([]);
 
-  // The user-selected date
+  // The user-selected date (YYYY-MM-DD)
   const [selectedDate, setSelectedDate] = useState(() => {
     const today = new Date();
     return today.toISOString().slice(0, 10); // "YYYY-MM-DD"
@@ -148,7 +188,7 @@ export default function FloorManager({
   /**
    * 1. On mount => 
    *    - Fetch the restaurant to see which layout is active
-   *    - Optionally also fetch all layouts so user can switch them
+   *    - Optionally also fetch all layouts
    */
   useEffect(() => {
     loadActiveLayoutAndAllLayouts();
@@ -157,23 +197,18 @@ export default function FloorManager({
   async function loadActiveLayoutAndAllLayouts() {
     setLoading(true);
     try {
-      // Example: GET /restaurants/1 => returns { id:1, name:"Rotary Sushi", current_layout_id:2 }
-      const restResp = await axios.get<RestaurantData>('http://localhost:3000/restaurants/1'); 
-      const restaurant = restResp.data;
+      // Fetch restaurant #1 (or whichever ID is appropriate)
+      const restaurant: RestaurantData = await fetchRestaurant(1);
 
-      // Optionally, also fetch all layouts if user can switch manually
-      const layoutsResp = await axios.get<LayoutData[]>('http://localhost:3000/layouts');
-      setAllLayouts(layoutsResp.data);
+      // fetch all layouts so staff can switch
+      const layouts: LayoutData[] = await fetchAllLayouts();
+      setAllLayouts(layouts);
 
       if (restaurant.current_layout_id) {
-        // This is the layout we want to show initially
+        // show that layout
         setSelectedLayoutId(restaurant.current_layout_id);
         await fetchLayoutAndDateData(restaurant.current_layout_id, selectedDate);
       } else {
-        // If there's no active layout, you can either:
-        //  - do nothing, or
-        //  - pick the first layout, or
-        //  - set layout = null
         console.warn('No current_layout_id set for this restaurant.');
         setLayout(null);
         setSelectedLayoutId(null);
@@ -188,8 +223,7 @@ export default function FloorManager({
   }
 
   /**
-   * 2. Whenever user picks a different layout from the dropdown,
-   *    or changes the date, we re-fetch that layout’s data
+   * 2. Whenever user picks a different layout or changes date, re-fetch data
    */
   useEffect(() => {
     if (!selectedLayoutId) return;
@@ -197,31 +231,28 @@ export default function FloorManager({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate]);
 
-  /** Let user manually pick from the dropdown (if you still want that UI) */
   async function handleSelectLayout(id: number) {
     setSelectedLayoutId(id);
     await fetchLayoutAndDateData(id, selectedDate);
   }
 
   /**
-   * Single helper that fetches:
-   *  - the layout data (seat_sections, seats),
-   *  - date-based reservations, waitlist, seat_allocations
+   * Single helper that fetches layout + reservations/waitlist/seatAllocations
    */
   async function fetchLayoutAndDateData(layoutId: number, dateStr: string) {
     setLoading(true);
     try {
-      const layoutRes = await axios.get<LayoutData>(`http://localhost:3000/layouts/${layoutId}`);
-      setLayout(layoutRes.data);
+      const layoutData = await fetchLayout(layoutId);
+      setLayout(layoutData);
 
-      const resResp = await axios.get<Reservation[]>(`http://localhost:3000/reservations?date=${dateStr}`);
-      setDateReservations(resResp.data);
+      const reservations = await fetchReservations({ date: dateStr });
+      setDateReservations(reservations);
 
-      const waitResp = await axios.get<WaitlistEntry[]>(`http://localhost:3000/waitlist_entries?date=${dateStr}`);
-      setDateWaitlist(waitResp.data);
+      const waitlist = await fetchWaitlistEntries({ date: dateStr });
+      setDateWaitlist(waitlist);
 
-      const allocResp = await axios.get<SeatAllocation[]>(`http://localhost:3000/seat_allocations?date=${dateStr}`);
-      setDateSeatAllocations(allocResp.data);
+      const seatAllocs = await fetchSeatAllocations({ date: dateStr });
+      setDateSeatAllocations(seatAllocs);
 
     } catch (err) {
       console.error('Error fetching layout+date data:', err);
@@ -241,7 +272,7 @@ export default function FloorManager({
     onRefreshData(); // optional
   }
 
-  /** 4. bounding logic */
+  /** 4. bounding logic for the seat map */
   useEffect(() => {
     if (!layout) return;
     if (layoutSize === 'auto') {
@@ -255,14 +286,15 @@ export default function FloorManager({
   }, [layout, layoutSize]);
 
   function computeAutoBounds() {
-    if (!layout) return;
-    const seatSections = layout.seat_sections || [];
+    if (!layout || !layout.seat_sections) return;
+    const seatSections = layout.seat_sections;
     if (seatSections.length === 0) {
       setCanvasWidth(1200);
       setCanvasHeight(800);
       setSeatScale(1.0);
       return;
     }
+
     let minX = Infinity, maxX = -Infinity;
     let minY = Infinity, maxY = -Infinity;
     seatSections.forEach(sec => {
@@ -302,7 +334,7 @@ export default function FloorManager({
     const isFree   = !occupant;
 
     if (seatWizard.active) {
-      // in seat-selection mode
+      // wizard mode
       const alreadySelected = seatWizard.selectedSeatIds.includes(seat.id);
       if (!alreadySelected && !isFree) {
         alert(`Seat #${seat.label || seat.id} is not free on ${selectedDate}.`);
@@ -314,7 +346,7 @@ export default function FloorManager({
       }
       toggleSelectedSeat(seat.id);
     } else {
-      // open detail dialog
+      // open seat detail dialog
       setSelectedSeat(seat);
       setShowSeatDialog(true);
     }
@@ -373,7 +405,7 @@ export default function FloorManager({
         occupantNameFull  = found.contact_name ?? 'Guest';
       }
     } else {
-      // waitlist
+      // waitlist occupant
       const found = dateWaitlist.find(w => w.id === occupantId);
       if (found) {
         occupantPartySize = found.party_size ?? 1;
@@ -411,19 +443,17 @@ export default function FloorManager({
       alert(`Need exactly ${seatWizard.occupantPartySize} seat(s).`);
       return;
     }
-    // seat them [now, now+60min]
-    const start = new Date();
-    const end   = new Date(start.getTime() + 60 * 60_000);
+
+    // Use the helper to get start/end times based on selectedDate
+    const { start, end } = getSeatTimes(selectedDate, 60);
 
     try {
-      await axios.post('http://localhost:3000/seat_allocations/multi_create', {
-        seat_allocation: {
-          occupant_type: seatWizard.occupantType,
-          occupant_id: seatWizard.occupantId,
-          seat_ids: seatWizard.selectedSeatIds,
-          start_time: start.toISOString(),
-          end_time:   end.toISOString(),
-        },
+      await seatAllocationMultiCreate({
+        occupant_type: seatWizard.occupantType,
+        occupant_id: seatWizard.occupantId,
+        seat_ids: seatWizard.selectedSeatIds,
+        start_time: start.toISOString(),
+        end_time: end.toISOString(),
       });
       handleCancelWizard();
       await refreshLayout();
@@ -439,18 +469,17 @@ export default function FloorManager({
       alert(`Need exactly ${seatWizard.occupantPartySize} seat(s).`);
       return;
     }
-    const start = new Date();
-    const end   = new Date(start.getTime() + 60 * 60_000);
+
+    // Use the helper to get start/end times based on selectedDate
+    const { start, end } = getSeatTimes(selectedDate, 60);
 
     try {
-      await axios.post('http://localhost:3000/seat_allocations/reserve', {
-        seat_allocation: {
-          occupant_type: seatWizard.occupantType,
-          occupant_id:   seatWizard.occupantId,
-          seat_ids:      seatWizard.selectedSeatIds,
-          start_time:    start.toISOString(),
-          end_time:      end.toISOString(),
-        },
+      await seatAllocationReserve({
+        occupant_type: seatWizard.occupantType,
+        occupant_id:   seatWizard.occupantId,
+        seat_ids:      seatWizard.selectedSeatIds,
+        start_time:    start.toISOString(),
+        end_time:      end.toISOString(),
       });
       handleCancelWizard();
       await refreshLayout();
@@ -460,12 +489,10 @@ export default function FloorManager({
     }
   }
 
+  // Finishing, no-show, arrival, and cancel occupant calls
   async function handleFinishOccupant(occupantType: string, occupantId: number) {
     try {
-      await axios.post('http://localhost:3000/seat_allocations/finish', {
-        occupant_type: occupantType,
-        occupant_id: occupantId,
-      });
+      await seatAllocationFinish({ occupant_type: occupantType, occupant_id: occupantId });
       handleCloseSeatDialog();
       await refreshLayout();
     } catch (err) {
@@ -476,10 +503,7 @@ export default function FloorManager({
 
   async function handleNoShow(occupantType: string, occupantId: number) {
     try {
-      await axios.post('http://localhost:3000/seat_allocations/no_show', {
-        occupant_type: occupantType,
-        occupant_id: occupantId,
-      });
+      await seatAllocationNoShow({ occupant_type: occupantType, occupant_id: occupantId });
       handleCloseSeatDialog();
       await refreshLayout();
     } catch (err) {
@@ -490,10 +514,7 @@ export default function FloorManager({
 
   async function handleArriveOccupant(occupantType: string, occupantId: number) {
     try {
-      await axios.post('http://localhost:3000/seat_allocations/arrive', {
-        occupant_type: occupantType,
-        occupant_id: occupantId,
-      });
+      await seatAllocationArrive({ occupant_type: occupantType, occupant_id: occupantId });
       handleCloseSeatDialog();
       await refreshLayout();
     } catch (err) {
@@ -504,10 +525,7 @@ export default function FloorManager({
 
   async function handleCancelOccupant(occupantType: string, occupantId: number) {
     try {
-      await axios.post('http://localhost:3000/seat_allocations/cancel', {
-        occupant_type: occupantType,
-        occupant_id: occupantId,
-      });
+      await seatAllocationCancel({ occupant_type: occupantType, occupant_id: occupantId });
       handleCloseSeatDialog();
       await refreshLayout();
     } catch (err) {
@@ -543,7 +561,7 @@ export default function FloorManager({
     );
   }
 
-  // e.g. filter to only “booked” reservations or “waiting” waitlist
+  // e.g. filter only “booked” reservations or “waiting” waitlist for seat assignment
   const seatableReservations = dateReservations.filter(r => r.status === 'booked');
   const seatableWaitlist     = dateWaitlist.filter(w => w.status === 'waiting');
 
@@ -567,7 +585,7 @@ export default function FloorManager({
           />
         </div>
 
-        {/* Layout selection (if you want staff to switch manually) */}
+        {/* Layout selection */}
         <div className="flex items-center space-x-2">
           <label className="text-sm font-medium">Layout:</label>
           <select
@@ -648,7 +666,7 @@ export default function FloorManager({
       ) : (
         <div className="flex items-center space-x-2 mb-4">
           <span className="text-sm text-gray-800">
-            Seating for {seatWizard.occupantName} (Party of {seatWizard.occupantPartySize}) —
+            Seating for {seatWizard.occupantName} (Party of {seatWizard.occupantPartySize}) — 
             selected {seatWizard.selectedSeatIds.length} seat(s)
           </span>
 
@@ -722,6 +740,7 @@ export default function FloorManager({
                 const occupantStatus = occupant?.occupant_status;
                 const isSelected = seatWizard.selectedSeatIds.includes(seat.id);
 
+                // default seat color => green (free)
                 let seatColor = 'bg-green-500';
                 if (seatWizard.active && isSelected) {
                   seatColor = 'bg-blue-500';
@@ -761,7 +780,7 @@ export default function FloorManager({
         </div>
       </div>
 
-      {/* ---------- Reservations & Waitlist (date-based) ---------- */}
+      {/* ---------- Reservations & Waitlist (for selected date) ---------- */}
       <div className="mt-6 grid grid-cols-2 gap-4">
         {/* Reservations */}
         <div className="bg-white p-4 rounded shadow">
