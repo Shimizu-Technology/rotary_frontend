@@ -22,7 +22,6 @@ import {
 } from '../services/api';
 
 /** ---------- Data Interfaces ---------- **/
-
 interface Reservation {
   id: number;
   contact_name?: string;
@@ -88,6 +87,7 @@ interface LayoutData {
 interface RestaurantData {
   id: number;
   name: string;
+  time_zone?: string;        // If returning from the backend
   current_layout_id?: number | null;
 }
 
@@ -115,16 +115,19 @@ interface SeatWizardState {
 
 /**
  * Helper: Returns start/end times for seat allocations.
- * If the selectedDate is "today," start now; otherwise default to 6:00 PM.
+ * If the selectedDate is "today," seat from "now" to + durationMinutes.
+ * Otherwise, seat from "selectedDate at 18:00 local" to + durationMinutes.
+ * 
+ * NOTE: We remove “+10:00” so we send a naive time (like "2025-01-22T18:00:00"),
+ * which the backend will parse in Pacific/Guam (via Time.zone.parse).
  */
 function getSeatTimes(selectedDate: string, durationMinutes = 60) {
   const now = new Date();
-  // Convert the selectedDate string to a Date at midnight
+  // Convert the selectedDate string to a Date at midnight local
   const userDate = new Date(`${selectedDate}T00:00:00`);
 
-  // Compare just the date parts to see if it's the same calendar day
-  const isToday =
-    now.toISOString().slice(0, 10) === userDate.toISOString().slice(0, 10);
+  // Compare just the date parts
+  const isToday = now.toISOString().slice(0, 10) === userDate.toISOString().slice(0, 10);
 
   if (isToday) {
     // If staff picked "today," seat them from now to +X minutes
@@ -132,7 +135,7 @@ function getSeatTimes(selectedDate: string, durationMinutes = 60) {
     const end = new Date(start.getTime() + durationMinutes * 60_000);
     return { start, end };
   } else {
-    // For a future/past date, pick 6 PM → 7 PM by default
+    // For a future date, pick 6:00 PM naive local => e.g. "2025-01-22T18:00:00"
     const start = new Date(`${selectedDate}T18:00:00`);
     const end = new Date(start.getTime() + durationMinutes * 60_000);
     return { start, end };
@@ -158,6 +161,9 @@ export default function FloorManager({
     const today = new Date();
     return today.toISOString().slice(0, 10); // "YYYY-MM-DD"
   });
+
+  // (Optional) Store the restaurant's time zone if you fetch it
+  const [restaurantTZ, setRestaurantTZ] = useState('Pacific/Guam'); // default
 
   // Seat detail dialog
   const [selectedSeat, setSelectedSeat]   = useState<DBSeat | null>(null);
@@ -185,11 +191,7 @@ export default function FloorManager({
   const [zoom, setZoom]                 = useState(1.0);
   const [showGrid, setShowGrid]         = useState(true);
 
-  /**
-   * 1. On mount => 
-   *    - Fetch the restaurant to see which layout is active
-   *    - Optionally also fetch all layouts
-   */
+  /** 1. On mount => fetch the restaurant + layouts */
   useEffect(() => {
     loadActiveLayoutAndAllLayouts();
   }, []);
@@ -197,8 +199,12 @@ export default function FloorManager({
   async function loadActiveLayoutAndAllLayouts() {
     setLoading(true);
     try {
-      // Fetch restaurant #1 (or whichever ID is appropriate)
+      // e.g. get restaurants/1
       const restaurant: RestaurantData = await fetchRestaurant(1);
+      // if restaurant.time_zone is returned, store it
+      if (restaurant.time_zone) {
+        setRestaurantTZ(restaurant.time_zone);
+      }
 
       // fetch all layouts so staff can switch
       const layouts: LayoutData[] = await fetchAllLayouts();
@@ -222,9 +228,7 @@ export default function FloorManager({
     }
   }
 
-  /**
-   * 2. Whenever user picks a different layout or changes date, re-fetch data
-   */
+  /** 2. Whenever user picks a different layout or changes date, re-fetch data */
   useEffect(() => {
     if (!selectedLayoutId) return;
     fetchLayoutAndDateData(selectedLayoutId, selectedDate);
@@ -470,7 +474,6 @@ export default function FloorManager({
       return;
     }
 
-    // Use the helper to get start/end times based on selectedDate
     const { start, end } = getSeatTimes(selectedDate, 60);
 
     try {
@@ -534,9 +537,7 @@ export default function FloorManager({
     }
   }
 
-  // ---------------------------
   // Rendering
-  // ---------------------------
   if (loading) {
     return <div>Loading layout data...</div>;
   }
@@ -561,7 +562,7 @@ export default function FloorManager({
     );
   }
 
-  // e.g. filter only “booked” reservations or “waiting” waitlist for seat assignment
+  // e.g. filter only “booked” or “waiting” if you want
   const seatableReservations = dateReservations.filter(r => r.status === 'booked');
   const seatableWaitlist     = dateWaitlist.filter(w => w.status === 'waiting');
 
@@ -572,7 +573,7 @@ export default function FloorManager({
     <div>
       <h2 className="text-xl font-bold mb-2">Floor Manager</h2>
 
-      {/* ---------- Single row with Date + Layout + Size + Grid + Zoom ---------- */}
+      {/* Single row with Date + Layout + Size + Grid + Zoom */}
       <div className="flex items-center space-x-4 mb-4">
         {/* Date Picker */}
         <div className="flex items-center space-x-2">
@@ -655,7 +656,7 @@ export default function FloorManager({
         </div>
       </div>
 
-      {/* ---------- Seat Wizard ---------- */}
+      {/* Seat Wizard */}
       {!seatWizard.active ? (
         <button
           onClick={handlePickOccupantOpen}
@@ -694,7 +695,7 @@ export default function FloorManager({
         </div>
       )}
 
-      {/* ---------- Canvas Area ---------- */}
+      {/* Canvas Area */}
       <div
         className="border border-gray-200 rounded-lg overflow-auto"
         style={{ width: '100%', height: 600 }}
@@ -787,6 +788,7 @@ export default function FloorManager({
           <h3 className="font-bold mb-2">Reservations</h3>
           <ul className="space-y-2">
             {dateReservations.map((res) => {
+              // Display local time in the user's browser
               const t = res.start_time
                 ? new Date(res.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                 : '';
@@ -954,7 +956,7 @@ export default function FloorManager({
         }
       })()}
 
-      {/* ---------- Pick Occupant Modal ---------- */}
+      {/* Pick Occupant Modal */}
       {showPickOccupantModal && (
         <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
           <div className="bg-white p-4 rounded shadow w-96 relative">

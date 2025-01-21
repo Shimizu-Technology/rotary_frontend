@@ -35,10 +35,20 @@ export default function ReservationModal({
     });
   };
 
-  // We'll parse the date/time for display
+  // We'll parse the date/time for display in Guam
   const dt = new Date(reservation.start_time || '');
-  const dateStr = dt.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
-  const timeStr = dt.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true });
+  const dateStr = dt.toLocaleDateString('en-US', {
+    timeZone: 'Pacific/Guam',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+  const timeStr = dt.toLocaleTimeString('en-US', {
+    timeZone: 'Pacific/Guam',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
   const dateTimeDisplay = `${dateStr} at ${timeStr}`;
 
   // Helper for color-coded status chip

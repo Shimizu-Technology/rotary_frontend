@@ -20,7 +20,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 
-// Import your new API helpers:
+// Import your API helpers:
 import {
   fetchReservations as apiFetchReservations,
   fetchWaitlistEntries as apiFetchWaitlist,
@@ -36,9 +36,9 @@ interface Reservation {
   contact_phone?: string;
   contact_email?: string;
   party_size?: number;
-  status?: string;        // "booked", "seated", "finished", "canceled", etc.
+  status?: string; // "booked", "seated", "finished", "canceled", etc.
   seat_labels?: string[];
-  start_time?: string;
+  start_time?: string; // e.g. "2025-01-22T18:00:00Z"
 }
 
 /** Waitlist shape. */
@@ -48,7 +48,7 @@ interface WaitlistEntry {
   contact_phone?: string;
   party_size?: number;
   check_in_time?: string;
-  status?: string; // "waiting", "seated", "removed", "no_show", ...
+  status?: string;    // "waiting", "seated", "removed", "no_show", etc.
   seat_labels?: string[];
 }
 
@@ -62,11 +62,11 @@ export default function StaffDashboard() {
 
   // Data
   const [reservations, setReservations] = useState<Reservation[]>([]);
-  const [waitlist, setWaitlist] = useState<WaitlistEntry[]>([]);
+  const [waitlist, setWaitlist]         = useState<WaitlistEntry[]>([]);
 
   // Searching & date filtering
   const [searchTerm, setSearchTerm] = useState('');
-  // Default to "today"
+  // Default to "today" => "YYYY-MM-DD"
   const [dateFilter, setDateFilter] = useState(
     new Date().toISOString().split('T')[0]
   );
@@ -75,27 +75,29 @@ export default function StaffDashboard() {
   const [selectedReservation, setSelectedReservation] = useState<Reservation | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
 
+  // On mount OR whenever dateFilter changes => fetch data
   useEffect(() => {
-    // On mount, fetch everything
     fetchData();
-  }, []);
+  }, [dateFilter]);
 
   /**
    * We'll fetch reservations, waitlist, and occupant–seat info
    * so we can see who’s seated where (seat_labels).
+   * Each time dateFilter changes, we re-fetch for the new date.
    */
   async function fetchData() {
-    console.log('[StaffDashboard] fetchData() called.');
+    console.log('[StaffDashboard] fetchData() => dateFilter=', dateFilter);
     await fetchReservations();
     await fetchWaitlist();
     await fetchOccupancyMap();
   }
 
-  /** 1) Reservations */
+  /** 1) Reservations (server does date-based filtering) */
   async function fetchReservations() {
     console.log('[StaffDashboard] fetchReservations()...');
     try {
-      const data = await apiFetchReservations();
+      // Pass dateFilter to the backend so it returns only that day’s reservations
+      const data = await apiFetchReservations({ date: dateFilter });
       console.log('fetchReservations =>', data);
 
       // Sort earliest -> latest
@@ -110,11 +112,12 @@ export default function StaffDashboard() {
     }
   }
 
-  /** 2) Waitlist */
+  /** 2) Waitlist (server does date-based filtering) */
   async function fetchWaitlist() {
     console.log('[StaffDashboard] fetchWaitlist()...');
     try {
-      const data = await apiFetchWaitlist();
+      // Similarly, pass { date: dateFilter } so the server only returns that day
+      const data = await apiFetchWaitlist({ date: dateFilter });
       console.log('fetchWaitlist =>', data);
       setWaitlist(data);
     } catch (err) {
@@ -122,11 +125,12 @@ export default function StaffDashboard() {
     }
   }
 
-  /** 3) occupant–seat map => GET /seat_allocations => occupant + seat_label */
+  /** 3) occupant–seat map => GET /seat_allocations?date=... => occupant + seat_label */
   async function fetchOccupancyMap() {
     console.log('[StaffDashboard] fetchOccupancyMap()...');
     try {
-      const seatAllocs = await apiFetchSeatAllocations();
+      // Optionally pass date param if you want seat_allocations for only that day
+      const seatAllocs = await apiFetchSeatAllocations({ date: dateFilter });
       console.log('fetchOccupancyMap => seat_allocations =>', seatAllocs);
 
       // occupantKey => seat_labels
@@ -170,31 +174,30 @@ export default function StaffDashboard() {
     setActiveTab(tab as any);
   }
 
-  // Reservations filtering
-  const allReservationsForDate = reservations.filter((r) => {
-    // Match date
-    const dtStr = (r.start_time || '').substring(0, 10);
-    const matchesDate = dtStr === dateFilter;
-
-    // Match search
-    const name = r.contact_name?.toLowerCase() ?? '';
+  // Filter in the front end by searchTerm (name/phone/email),
+  // but no longer filter by date here because the server did it already.
+  const searchedReservations = reservations.filter((r) => {
+    const name  = r.contact_name?.toLowerCase() ?? '';
     const phone = r.contact_phone ?? '';
     const email = r.contact_email?.toLowerCase() ?? '';
     const searchLower = searchTerm.toLowerCase();
-    const matchesSearch =
+
+    return (
       name.includes(searchLower) ||
       phone.includes(searchTerm) ||
-      email.includes(searchLower);
-
-    return matchesDate && matchesSearch;
+      email.includes(searchLower)
+    );
   });
 
-  // Waitlist filtering
-  const filteredWaitlist = waitlist.filter((w) => {
+  const searchedWaitlist = waitlist.filter((w) => {
     const wName = w.contact_name?.toLowerCase() ?? '';
     const wPhone = w.contact_phone ?? '';
     const searchLower = searchTerm.toLowerCase();
-    return wName.includes(searchLower) || wPhone.includes(searchTerm);
+
+    return (
+      wName.includes(searchLower) ||
+      wPhone.includes(searchTerm)
+    );
   });
 
   // row click => open modal
@@ -207,6 +210,7 @@ export default function StaffDashboard() {
     console.log('[StaffDashboard] handleDeleteReservation =>', id);
     try {
       await apiDeleteReservation(id);
+      // Remove it locally
       setReservations((prev) => prev.filter((r) => r.id !== id));
       setSelectedReservation(null);
     } catch (err) {
@@ -218,15 +222,15 @@ export default function StaffDashboard() {
     console.log('[StaffDashboard] handleEditReservation =>', updated);
     try {
       const patchData = {
-        party_size: updated.party_size,
-        contact_name: updated.contact_name,
-        contact_phone: updated.contact_phone,
-        contact_email: updated.contact_email,
-        status: updated.status,
+        party_size:     updated.party_size,
+        contact_name:   updated.contact_name,
+        contact_phone:  updated.contact_phone,
+        contact_email:  updated.contact_email,
+        status:         updated.status,
       };
       await apiUpdateReservation(updated.id, patchData);
 
-      // Refresh
+      // Refresh from the server
       await fetchReservations();
       await fetchOccupancyMap();
       setSelectedReservation(null);
@@ -239,7 +243,7 @@ export default function StaffDashboard() {
     setSelectedReservation(null);
   }
 
-  // Date arrow nav
+  // Date arrow nav => changes dateFilter => triggers useEffect => refetch
   function handlePrevDay() {
     const current = new Date(dateFilter);
     current.setDate(current.getDate() - 1);
@@ -372,7 +376,7 @@ export default function StaffDashboard() {
               </div>
             </div>
 
-            {/* Reservations table => show all statuses but only for dateFilter */}
+            {/* Reservations table => server already filtered by date, so we only filter by searchTerm now */}
             <div className="overflow-x-auto mt-4">
               <table className="min-w-full divide-y divide-gray-200 text-sm">
                 <thead className="bg-gray-50">
@@ -395,7 +399,7 @@ export default function StaffDashboard() {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {allReservationsForDate.map((res) => {
+                  {searchedReservations.map((res) => {
                     const dt = new Date(res.start_time || '');
                     const dateStr = dt.toLocaleDateString(undefined, {
                       year: 'numeric',
@@ -510,7 +514,7 @@ export default function StaffDashboard() {
                       </tr>
                     );
                   })}
-                  {allReservationsForDate.length === 0 && (
+                  {searchedReservations.length === 0 && (
                     <tr>
                       <td colSpan={5} className="px-6 py-4 text-center text-gray-500">
                         No reservations found for this date or search term.
@@ -562,7 +566,7 @@ export default function StaffDashboard() {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {filteredWaitlist.map((w) => {
+                  {searchedWaitlist.map((w) => {
                     const joined = new Date(w.check_in_time || '');
                     const joinedDisplay = isNaN(joined.getTime())
                       ? 'N/A'
@@ -637,7 +641,7 @@ export default function StaffDashboard() {
                       </tr>
                     );
                   })}
-                  {filteredWaitlist.length === 0 && (
+                  {searchedWaitlist.length === 0 && (
                     <tr>
                       <td colSpan={5} className="px-6 py-4 text-center text-gray-500">
                         No waitlist entries found.
@@ -653,13 +657,13 @@ export default function StaffDashboard() {
         {/* ---------- SEATING TAB ---------- */}
         {activeTab === 'seating' && (
           <div className="bg-white shadow rounded-md p-4 mt-4">
+            {/* We can pass the entire lists OR just the data for the dateFilter.
+                Since we've already server-filtered, just pass them in full.
+                Or you can filter them again if you want seat wizard to see only today's. */}
             <FloorManager
-              // Filter reservations if you want only today's in 'Seating'
-              reservations={reservations.filter((r) => {
-                const dtStr = (r.start_time || '').substring(0, 10);
-                return dtStr === dateFilter; 
-              })}
-              waitlist={filteredWaitlist}
+              // Optionally re-filter to show only today's items if desired
+              reservations={reservations}
+              waitlist={waitlist}
               onRefreshData={fetchData}
               onTabChange={handleTabChange}
             />

@@ -1,3 +1,4 @@
+// src/services/api.ts
 import axios from 'axios';
 
 // For Vite:
@@ -16,7 +17,9 @@ apiClient.interceptors.request.use((config) => {
 
 // ------------- Restaurant -------------
 export async function fetchRestaurant(id: number) {
+  // Make sure the backend returns :time_zone if it’s present in the restaurant model
   const resp = await apiClient.get(`/restaurants/${id}`);
+  // e.g. resp.data => { id, name, time_zone, ... }
   return resp.data;
 }
 
@@ -146,7 +149,8 @@ export async function fetchAvailability(date: string, partySize: number) {
   const resp = await apiClient.get('/availability', {
     params: { date, party_size: partySize },
   });
-  return resp.data; // { slots: [...] }
+  // e.g. return { slots: [...] }
+  return resp.data;
 }
 
 // ------------- Auth Calls -------------
@@ -160,10 +164,12 @@ export async function signupUser(data: {
   restaurant_id?: number;
 }) {
   const resp = await apiClient.post('/signup', data);
-  return resp.data; // { jwt, user }
+  // e.g. { jwt, user }
+  return resp.data;
 }
 
 export async function loginUser(email: string, password: string) {
   const resp = await apiClient.post('/login', { email, password });
-  return resp.data; // { jwt, user }
+  // e.g. { jwt, user }
+  return resp.data;
 }

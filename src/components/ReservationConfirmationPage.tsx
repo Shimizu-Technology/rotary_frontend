@@ -1,5 +1,4 @@
 // src/components/ReservationConfirmationPage.tsx
-
 import React from 'react';
 import { useLocation, Link } from 'react-router-dom';
 
@@ -18,7 +17,7 @@ export default function ReservationConfirmationPage() {
         <div className="max-w-lg w-full bg-white rounded-xl shadow-lg p-8">
           <h1 className="text-3xl font-bold mb-4 text-gray-900">No Reservation Data</h1>
           <p className="mb-6 text-gray-700">
-            We couldn't find the reservation details. You can return to the homepage or make a new
+            We couldn&apos;t find the reservation details. You can return to the homepage or make a new
             reservation.
           </p>
           <Link
@@ -34,12 +33,20 @@ export default function ReservationConfirmationPage() {
     );
   }
 
-  // Format date/time more nicely
+  // Format date/time for "Pacific/Guam"
   const startTime = new Date(reservation.start_time);
-  const dateOptions: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long', day: 'numeric' };
-  const timeOptions: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: '2-digit', hour12: true };
-  const dateStr = startTime.toLocaleDateString(undefined, dateOptions);
-  const timeStr = startTime.toLocaleTimeString(undefined, timeOptions);
+  const dateStr = startTime.toLocaleDateString('en-US', {
+    timeZone: 'Pacific/Guam',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+  const timeStr = startTime.toLocaleTimeString('en-US', {
+    timeZone: 'Pacific/Guam',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-orange-50 to-gray-100 flex flex-col items-center px-4 pt-12 pb-24">

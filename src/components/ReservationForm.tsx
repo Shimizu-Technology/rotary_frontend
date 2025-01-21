@@ -9,7 +9,7 @@ import { fetchAvailability, createReservation } from '../services/api';
 
 interface ReservationFormData {
   date: string;       // "YYYY-MM-DD"
-  time: string;       // from the timeslot dropdown, e.g. "17:30"
+  time: string;       // e.g. "17:30"
   partySize: number;
   firstName: string;
   lastName: string;
@@ -50,7 +50,6 @@ export default function ReservationForm() {
       try {
         // Call our API helper
         const data = await fetchAvailability(formData.date, formData.partySize);
-        // e.g. data => { slots: ["17:00","17:30","18:00"] }
         setTimeslots(data.slots || []);
       } catch (err) {
         console.error('Error fetching availability:', err);
@@ -71,8 +70,10 @@ export default function ReservationForm() {
       setError('Please pick a date and time.');
       return;
     }
-    const start_time = `${formData.date}T${formData.time}:00`; 
+
     // e.g. "2025-01-25T17:30:00"
+    // (We do not append +10:00, letting the backend parse as Guam local.)
+    const start_time = `${formData.date}T${formData.time}:00`;
 
     // fallback logic for logged-in user’s data
     const contactFirstName = formData.firstName.trim()
@@ -95,7 +96,7 @@ export default function ReservationForm() {
         contact_name: [contactFirstName, contactLastName].filter(Boolean).join(' '),
         contact_phone: contactPhone,
         contact_email: contactEmail,
-        restaurant_id: 1, // or your actual restaurant ID
+        restaurant_id: 1,
       });
 
       // If success

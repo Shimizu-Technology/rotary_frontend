@@ -1,7 +1,5 @@
 // src/components/ReservationFormModal.tsx
 import React, { useState, useEffect } from 'react';
-
-// 1) Import your new API helpers
 import { fetchAvailability, createReservation } from '../services/api';
 
 interface Props {
@@ -18,10 +16,10 @@ export default function ReservationFormModal({ onClose, onSuccess }: Props) {
   const [contactEmail, setContactEmail] = useState('');
   const [error, setError] = useState('');
 
-  // 2) We'll store timeslots from /availability
+  // We'll store timeslots from /availability
   const [timeslots, setTimeslots] = useState<string[]>([]);
 
-  // 3) fetch timeslots whenever date or partySize changes
+  // fetch timeslots whenever date or partySize changes
   useEffect(() => {
     async function getTimeslots() {
       if (!date || partySize < 1) {
@@ -39,7 +37,6 @@ export default function ReservationFormModal({ onClose, onSuccess }: Props) {
     getTimeslots();
   }, [date, partySize]);
 
-  // 4) handle reservation creation
   const handleCreate = async () => {
     setError('');
 
@@ -53,6 +50,7 @@ export default function ReservationFormModal({ onClose, onSuccess }: Props) {
     }
 
     // e.g. "2025-01-20T18:00:00"
+    // We rely on the backend to parse it as local Guam time
     const start_time = `${date}T${time}:00`;
 
     try {
