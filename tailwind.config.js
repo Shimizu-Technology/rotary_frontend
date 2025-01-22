@@ -2,7 +2,11 @@
 export default {
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
-    extend: {},
+    extend: {
+      fontSize: {
+        base: '1.125rem', // ~18px for iPad-friendlier text
+      },
+    },
   },
   plugins: [],
 };

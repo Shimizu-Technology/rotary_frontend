@@ -536,7 +536,7 @@ export default function FloorManager({
   }
 
   // We'll filter or simply display the reservations/waitlist we got from the parent
-  // that correspond to `date`.
+  // that correspond to date.
   const dateReservations = reservations;
   const dateWaitlist     = waitlist;
 
@@ -669,7 +669,7 @@ export default function FloorManager({
       {/* Canvas area */}
       <div
         className="border border-gray-200 rounded-lg overflow-auto"
-        style={{ width: '100%', height: 600 }}
+        style={{ width: '100%', height: '50vh' }}  // <--- changed to a relative height
       >
         <div
           style={{
@@ -756,8 +756,8 @@ export default function FloorManager({
         </div>
       </div>
 
-      {/* Bottom half: show the parent's reservations & waitlist for `date` */}
-      <div className="mt-6 grid grid-cols-2 gap-4">
+      {/* Bottom half: show the parent's reservations & waitlist for date */}
+      <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Reservations */}
         <div className="bg-white p-4 rounded shadow">
           <h3 className="font-bold mb-2">Reservations</h3>
