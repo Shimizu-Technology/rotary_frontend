@@ -1,4 +1,3 @@
-// src/components/StaffDashboard.tsx
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 
@@ -48,58 +47,59 @@ interface WaitlistEntry {
   contact_phone?: string;
   party_size?: number;
   check_in_time?: string;
-  status?: string;    // "waiting", "seated", "removed", "no_show", etc.
+  status?: string; // "waiting", "seated", "removed", "no_show", etc.
   seat_labels?: string[];
+}
+
+/**
+ * Returns today's date in Guam as "YYYY-MM-DD" 
+ * without re‐parsing. We use "en-CA" because that
+ * locale defaults to "yyyy-MM-dd" format.
+ */
+function getGuamDateString(): string {
+  return new Date().toLocaleDateString("en-CA", {
+    timeZone: "Pacific/Guam",
+  });
 }
 
 export default function StaffDashboard() {
   const { user } = useAuth();
 
-  // Tab management
-  const [activeTab, setActiveTab] = useState<
-    'reservations' | 'waitlist' | 'seating' | 'layout'
-  >('reservations');
+  // Tabs: 'reservations' | 'waitlist' | 'seating' | 'layout'
+  const [activeTab, setActiveTab] = useState<'reservations'|'waitlist'|'seating'|'layout'>(
+    'reservations'
+  );
 
-  // Data
+  // The single source of truth for the date
+  const [dateFilter, setDateFilter] = useState(getGuamDateString);
+
+  // Reservations & waitlist data (fetched each time `dateFilter` changes)
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [waitlist, setWaitlist]         = useState<WaitlistEntry[]>([]);
 
-  // Searching & date filtering
+  // Searching
   const [searchTerm, setSearchTerm] = useState('');
-  // Default to "today" => "YYYY-MM-DD"
-  const [dateFilter, setDateFilter] = useState(
-    new Date().toISOString().split('T')[0]
-  );
 
-  // For editing or creating reservations
+  // For editing/creating reservations
   const [selectedReservation, setSelectedReservation] = useState<Reservation | null>(null);
-  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showCreateModal, setShowCreateModal]         = useState(false);
 
-  // On mount OR whenever dateFilter changes => fetch data
+  // On mount or whenever dateFilter changes => fetch reservations & waitlist
   useEffect(() => {
     fetchData();
   }, [dateFilter]);
 
-  /**
-   * We'll fetch reservations, waitlist, and occupant–seat info
-   * so we can see who’s seated where (seat_labels).
-   * Each time dateFilter changes, we re-fetch for the new date.
-   */
   async function fetchData() {
     console.log('[StaffDashboard] fetchData() => dateFilter=', dateFilter);
     await fetchReservations();
     await fetchWaitlist();
-    await fetchOccupancyMap();
+    await fetchOccupancyMap(); // optional, to merge seat labels
   }
 
-  /** 1) Reservations (server does date-based filtering) */
+  /** 1) Reservations (server filters by date) */
   async function fetchReservations() {
-    console.log('[StaffDashboard] fetchReservations()...');
     try {
-      // Pass dateFilter to the backend so it returns only that day’s reservations
       const data = await apiFetchReservations({ date: dateFilter });
-      console.log('fetchReservations =>', data);
-
       // Sort earliest -> latest
       const sorted = data.slice().sort((a, b) => {
         const dateA = new Date(a.start_time || '').getTime();
@@ -112,30 +112,22 @@ export default function StaffDashboard() {
     }
   }
 
-  /** 2) Waitlist (server does date-based filtering) */
+  /** 2) Waitlist (server filters by date) */
   async function fetchWaitlist() {
-    console.log('[StaffDashboard] fetchWaitlist()...');
     try {
-      // Similarly, pass { date: dateFilter } so the server only returns that day
       const data = await apiFetchWaitlist({ date: dateFilter });
-      console.log('fetchWaitlist =>', data);
       setWaitlist(data);
     } catch (err) {
       console.error('Error fetching waitlist:', err);
     }
   }
 
-  /** 3) occupant–seat map => GET /seat_allocations?date=... => occupant + seat_label */
+  /** 3) occupant–seat map => merges seat_labels into reservations/waitlist */
   async function fetchOccupancyMap() {
-    console.log('[StaffDashboard] fetchOccupancyMap()...');
     try {
-      // Optionally pass date param if you want seat_allocations for only that day
       const seatAllocs = await apiFetchSeatAllocations({ date: dateFilter });
-      console.log('fetchOccupancyMap => seat_allocations =>', seatAllocs);
 
-      // occupantKey => seat_labels
       const occupantSeatsMap: Record<string, string[]> = {};
-
       seatAllocs.forEach((alloc: any) => {
         const occupantKey = alloc.reservation_id
           ? `reservation-${alloc.reservation_id}`
@@ -147,20 +139,20 @@ export default function StaffDashboard() {
       // Merge seat_labels into reservations
       setReservations((prev) =>
         prev.map((r) => {
-          const occupantKey = `reservation-${r.id}`;
+          const key = `reservation-${r.id}`;
           return {
             ...r,
-            seat_labels: occupantSeatsMap[occupantKey] || [],
+            seat_labels: occupantSeatsMap[key] || [],
           };
         })
       );
       // Merge seat_labels into waitlist
       setWaitlist((prev) =>
         prev.map((w) => {
-          const occupantKey = `waitlist-${w.id}`;
+          const key = `waitlist-${w.id}`;
           return {
             ...w,
-            seat_labels: occupantSeatsMap[occupantKey] || [],
+            seat_labels: occupantSeatsMap[key] || [],
           };
         })
       );
@@ -169,19 +161,22 @@ export default function StaffDashboard() {
     }
   }
 
+  // Handy “refresh everything” callback if we want to re-fetch after seating changes
+  async function handleRefreshAll() {
+    await fetchData();
+  }
+
   // Tab switch
   function handleTabChange(tab: string) {
     setActiveTab(tab as any);
   }
 
-  // Filter in the front end by searchTerm (name/phone/email),
-  // but no longer filter by date here because the server did it already.
+  // Searching (front-end filter by name/phone/email)
   const searchedReservations = reservations.filter((r) => {
     const name  = r.contact_name?.toLowerCase() ?? '';
     const phone = r.contact_phone ?? '';
     const email = r.contact_email?.toLowerCase() ?? '';
     const searchLower = searchTerm.toLowerCase();
-
     return (
       name.includes(searchLower) ||
       phone.includes(searchTerm) ||
@@ -193,24 +188,21 @@ export default function StaffDashboard() {
     const wName = w.contact_name?.toLowerCase() ?? '';
     const wPhone = w.contact_phone ?? '';
     const searchLower = searchTerm.toLowerCase();
-
     return (
       wName.includes(searchLower) ||
       wPhone.includes(searchTerm)
     );
   });
 
-  // row click => open modal
+  // Reservation row click => open modal
   function handleRowClick(res: Reservation) {
     setSelectedReservation(res);
   }
 
-  // Delete or Edit
+  // Delete or Edit reservation
   async function handleDeleteReservation(id: number) {
-    console.log('[StaffDashboard] handleDeleteReservation =>', id);
     try {
       await apiDeleteReservation(id);
-      // Remove it locally
       setReservations((prev) => prev.filter((r) => r.id !== id));
       setSelectedReservation(null);
     } catch (err) {
@@ -219,18 +211,17 @@ export default function StaffDashboard() {
   }
 
   async function handleEditReservation(updated: Reservation) {
-    console.log('[StaffDashboard] handleEditReservation =>', updated);
     try {
       const patchData = {
-        party_size:     updated.party_size,
-        contact_name:   updated.contact_name,
-        contact_phone:  updated.contact_phone,
-        contact_email:  updated.contact_email,
-        status:         updated.status,
+        party_size:    updated.party_size,
+        contact_name:  updated.contact_name,
+        contact_phone: updated.contact_phone,
+        contact_email: updated.contact_email,
+        status:        updated.status,
       };
       await apiUpdateReservation(updated.id, patchData);
 
-      // Refresh from the server
+      // Re-fetch
       await fetchReservations();
       await fetchOccupancyMap();
       setSelectedReservation(null);
@@ -243,7 +234,7 @@ export default function StaffDashboard() {
     setSelectedReservation(null);
   }
 
-  // Date arrow nav => changes dateFilter => triggers useEffect => refetch
+  // Date arrow nav => changes dateFilter => triggers new fetch
   function handlePrevDay() {
     const current = new Date(dateFilter);
     current.setDate(current.getDate() - 1);
@@ -255,7 +246,7 @@ export default function StaffDashboard() {
     setDateFilter(current.toISOString().split('T')[0]);
   }
 
-  // New Reservation
+  // Creating a new reservation
   function handleCreateNewReservation() {
     setShowCreateModal(true);
   }
@@ -324,7 +315,7 @@ export default function StaffDashboard() {
             <div className="border-b border-gray-200 bg-gray-50 rounded-md p-4">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex flex-col sm:flex-row items-center gap-3 flex-1">
-                  {/* Search input */}
+                  {/* Search */}
                   <div className="relative w-full sm:w-auto flex-1">
                     <Search className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
                     <input
@@ -376,7 +367,7 @@ export default function StaffDashboard() {
               </div>
             </div>
 
-            {/* Reservations table => server already filtered by date, so we only filter by searchTerm now */}
+            {/* Reservations table => server already filtered by date, so only front-end search here */}
             <div className="overflow-x-auto mt-4">
               <table className="min-w-full divide-y divide-gray-200 text-sm">
                 <thead className="bg-gray-50">
@@ -458,8 +449,7 @@ export default function StaffDashboard() {
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          {/* Render any possible status:
-                              "booked", "reserved", "seated", "finished", "canceled", etc. */}
+                          {/* Potential statuses: "booked", "reserved", "seated", "finished", "canceled", "no_show", etc. */}
                           {res.status === 'booked' && (
                             <span className="px-2 inline-flex text-xs leading-5 font-semibold 
                                            rounded-full bg-orange-100 text-orange-800">
@@ -496,7 +486,7 @@ export default function StaffDashboard() {
                               no_show
                             </span>
                           )}
-                          {/* If it's some other custom status: */}
+                          {/* fallback if custom status */}
                           {![
                             'booked',
                             'reserved',
@@ -610,22 +600,26 @@ export default function StaffDashboard() {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           {w.status === 'waiting' && (
-                            <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">
+                            <span className="px-2 inline-flex text-xs leading-5 font-semibold 
+                                           rounded-full bg-yellow-100 text-yellow-800">
                               waiting
                             </span>
                           )}
                           {w.status === 'seated' && (
-                            <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
+                            <span className="px-2 inline-flex text-xs leading-5 font-semibold 
+                                           rounded-full bg-green-100 text-green-800">
                               seated
                             </span>
                           )}
                           {w.status === 'removed' && (
-                            <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-200 text-gray-800">
+                            <span className="px-2 inline-flex text-xs leading-5 font-semibold 
+                                           rounded-full bg-gray-200 text-gray-800">
                               removed
                             </span>
                           )}
                           {w.status === 'no_show' && (
-                            <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">
+                            <span className="px-2 inline-flex text-xs leading-5 font-semibold 
+                                           rounded-full bg-red-100 text-red-800">
                               no_show
                             </span>
                           )}
@@ -657,14 +651,12 @@ export default function StaffDashboard() {
         {/* ---------- SEATING TAB ---------- */}
         {activeTab === 'seating' && (
           <div className="bg-white shadow rounded-md p-4 mt-4">
-            {/* We can pass the entire lists OR just the data for the dateFilter.
-                Since we've already server-filtered, just pass them in full.
-                Or you can filter them again if you want seat wizard to see only today's. */}
             <FloorManager
-              // Optionally re-filter to show only today's items if desired
-              reservations={reservations}
+              date={dateFilter}                 // <--- pass parent's date
+              onDateChange={setDateFilter}      // <--- pass parent's setter
+              reservations={reservations}       // use parent’s data
               waitlist={waitlist}
-              onRefreshData={fetchData}
+              onRefreshData={handleRefreshAll}
               onTabChange={handleTabChange}
             />
           </div>
