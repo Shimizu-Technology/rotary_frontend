@@ -22,11 +22,11 @@ export default function HomePage() {
         <div className="relative max-w-7xl mx-auto px-4 h-full flex flex-col items-center justify-center text-center">
           <img
             src="https://images.unsplash.com/photo-1579871494447-9811cf80d66c?auto=format&fit=crop&q=80&w=120"
-            alt="Rotary Sushi Logo"
+            alt="Conveyor Sushi Bar Logo"
             className="w-24 h-24 rounded-full border-4 border-white shadow-lg mb-6"
           />
           <h1 className="text-4xl md:text-5xl font-bold text-white mb-4">
-            Welcome to Rotary Sushi
+            Welcome to Conveyor Sushi Bar
           </h1>
           <p className="text-xl text-white mb-8">
             Experience the finest conveyor belt sushi in town
@@ -57,7 +57,7 @@ export default function HomePage() {
       <footer className="bg-gray-900 text-white py-8">
         <div className="max-w-7xl mx-auto px-4 text-center">
           <p className="text-sm">
-            © {new Date().getFullYear()} Rotary Sushi. All rights reserved.
+            © {new Date().getFullYear()} Conveyor Sushi Bar. All rights reserved.
           </p>
         </div>
       </footer>

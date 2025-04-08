@@ -9,12 +9,12 @@ const staffMembers: StaffMember[] = [
   },
   {
     name: 'Chef Yuki',
-    role: 'Sushi Chef',
+    role: 'Chef',
     image: 'https://images.unsplash.com/photo-1607631568010-a87245c0daf8?auto=format&fit=crop&q=80&w=200&h=200'
   },
   {
     name: 'Chef Kenji',
-    role: 'Sushi Chef',
+    role: 'Chef',
     image: 'https://images.unsplash.com/photo-1622021142947-da7dedc7c39a?auto=format&fit=crop&q=80&w=200&h=200'
   }
 ];

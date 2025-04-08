@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 
 /**
  * NavBar:
- * - Brand on the left ("Rotary Sushi")
+ * - Brand on the left ("Conveyor Sushi Bar")
  * - If user is NOT logged in, show both "Sign In" and "Sign Up" on the right.
  * - If user IS logged in, show phone link + user icon+name dropdown.
  */
@@ -49,7 +49,7 @@ export default function NavBar() {
           <div className="flex items-center space-x-4">
             <Link to="/" className="flex items-center">
               <span className="text-2xl font-bold text-orange-600">
-                Rotary Sushi
+                Conveyor Sushi Bar
               </span>
             </Link>
           </div>
