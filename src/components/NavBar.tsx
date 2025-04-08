@@ -36,9 +36,9 @@ export default function NavBar() {
     navigate('/login');
   };
 
-  // Helper to display the user's full name if available, else fallback to email
-  const displayName = user && user.first_name && user.last_name
-    ? `${user.first_name} ${user.last_name}`
+  // Helper to display the user's name if available, else fallback to email
+  const displayName = user && user.name
+    ? user.name
     : user?.email;
 
   return (
